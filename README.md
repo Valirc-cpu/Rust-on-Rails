@@ -58,74 +58,96 @@ Arsitektur aplikasi terbagi menjadi dua lapisan utama yang berkomunikasi langsun
 
 ---
 
-## 2. Command CLI `railst` (Menjalankan Perintah Tanpa Awalan `bin/`)
+## 2. Command CLI `railst` (Developer Interface Tanpa Awalan `bin/`)
 
-Framework ini menyediakan command line interface bawaan bernama **`railst`** sehingga developer tidak perlu mengetik awalan `bin/` atau `bundle exec`.
+Framework ini menyediakan command line interface bawaan bernama **`railst`** sehingga developer tidak perlu mengetik awalan `bin/` atau `bundle exec`. Output CLI didesain dengan format bersih, elegan, dan informatif layaknya Laravel (`php artisan serve`), dilengkapi pendeteksi tabrakan port otomatis dan penekanan pesan warning verbose sistem.
 
 ### Cara Mengaktifkan Command `railst`
 Di komputer mana pun framework ini di-clone, jalankan perintah setup sekali:
 
 ```bash
 bin/setup --skip-server
-# atau jika hanya ingin mengaktifkan CLI:
+# atau jika hanya ingin mengaktifkan CLI ke direktori PATH sistem:
 bin/railst install
 ```
 
-Perintah di atas akan menyalin biner `railst` ke direktori path user (`$(ruby -e 'puts Gem.user_dir')/bin` atau `~/.local/bin`) yang sudah ada di `$PATH`.
+Perintah di atas akan menyalin biner `railst` ke direktori path user (`$(ruby -e 'puts Gem.user_dir')/bin` dan `~/.local/bin`) yang sudah terdaftar di `$PATH`.
 
-### Daftar Perintah `railst` yang Tersedia
+### Menjalankan Server (`railst run`)
 
-* **Menjalankan Server**:
-  ```bash
-  railst run     # atau: railst s
-  ```
-  Otomatis mengecek dan mengompilasi ekstensi Rust jika belum dibangun, lalu menyalakan server Rails.
+Perintah `railst run` otomatis mengecek dan mengompilasi ekstensi Rust jika belum dibangun, menyaring log internal Puma yang bising, dan menyajikan antarmuka visual server yang bersih:
 
-* **Kompilasi Modul Rust**:
-  ```bash
-  railst build
-  ```
-  Mengompilasi crate `ext/rust_backend` via Cargo dan menempatkan pustaka `.so` di `lib/rust_backend/`.
+```bash
+railst run                       # Menjalankan server pada port default 3000
+railst run -p 3001               # Menjalankan server pada port spesifik (misal: 3001)
+railst run --find-port           # Otomatis memilih port berikutnya jika default terpakai
+railst run -b 0.0.0.0            # Mengikat server ke seluruh antarmuka jaringan (IP 0.0.0.0)
+railst run -e production         # Menjalankan dalam environment spesifik
+railst run --verbose             # Menampilkan log raw lengkap Rails, SQL query, & Puma
+```
 
-* **Menjalankan Seluruh Pengujian**:
-  ```bash
-  railst test
-  ```
-  Menjalankan unit test native Rust (`cargo test`) dan Minitest Rails sekaligus.
+#### Tampilan Server Saat Berjalan Normal (Laravel-Style)
+```text
+   INFO  Server running on [http://127.0.0.1:3001].
 
-* **Menjalankan Pipeline CI Lengkap**:
-  ```bash
-  railst ci
-  ```
-  Menjalankan linter RuboCop, scanner keamanan gem & JS, Brakeman, unit test Rust, dan test suite Rails.
+  Press Ctrl+C to stop the server
 
-* **Scaffolding dan Generator**:
-  ```bash
-  railst g rust:resource Invoice customer:string amount:decimal
-  railst g rust:service HeavyCalculator
-  ```
+  Environment ......................................... development
+  Rust Backend ....................... Rayon + Magnus 0.9 (active)
 
-* **Interactive Console**:
-  ```bash
-  railst c
-  ```
-  Membuka konsol Rails dengan modul `RustBackend` siap pakai.
+  2026-10-31 16:10:00  GET    / ............................................. 200 OK ~ 4ms
+  2026-10-31 16:10:05  POST   /benchmark .................................... 200 OK ~ 11ms
 
-* **Operasi Database**:
-  ```bash
-  railst db migrate
-  railst db rollback
-  railst db prepare
-  ```
+   INFO  Server stopped.
+```
 
-* **Setup Proyek**:
-  ```bash
-  railst setup
-  ```
+#### Tampilan Saat Terjadi Tabrakan Port (Clean Error Reporting)
+Jika port 3000 sedang ditempati oleh proses lain (seperti Docker proxy):
+```text
+   ERROR  Failed to listen on 127.0.0.1:3000 (reason: Address already in use).
+
+  Port 3000 is currently occupied by another process.
+  Try specifying a different port:
+    railst run -p 3001
+
+  Or run with automatic port selection:
+    railst run --find-port
+```
 
 ---
 
-## 3. Prasyarat dan Cara Instalasi
+### Daftar Perintah `railst` Lengkap
+
+| Perintah | Deskripsi |
+| :--- | :--- |
+| `railst run [options]` | Menjalankan server development dengan auto-build Rust dan tampilan bersih |
+| `railst build` | Mengompilasi crate `ext/rust_backend` via Cargo ke `lib/rust_backend/` |
+| `railst test [path]` | Menjalankan unit test native Rust (`cargo test`) dan Minitest Rails |
+| `railst ci` | Menjalankan 7 tahapan verifikasi Continuous Integration menyeluruh |
+| `railst g rust:resource <Name> [field:type]` | Scaffolding terpadu: migrasi, model `RustBacked`, controller, dan routing |
+| `railst g rust:service <Name>` | Membuat service Ruby khusus yang terintegrasi langsung dengan Rust |
+| `railst c` | Membuka konsol interaktif Rails dengan namespace `RustBackend` siap pakai |
+| `railst db [action]` | Menjalankan operasi database (`migrate`, `rollback`, `prepare`, `seed`) |
+| `railst setup` | Instalasi dependensi gem, migrasi DB, dan kompilasi Rust extension |
+| `railst clean` | Membersihkan artefak build target Cargo pada crate Rust |
+| `railst install` | Menginstal biner `railst` secara global ke direktori bin user |
+| `railst help` | Menampilkan bantuan penggunaan dan opsi argumen |
+
+---
+
+## 3. Tampilan Frontend Baru (Rust + Ruby Fusion Palette)
+
+Landing page bawaan ("Yay! You're on Rails!") telah digantikan dengan antarmuka front-end modern yang didesain secara elegan, ringkas, dan bebas emoji.
+
+### Karakteristik Desain:
+* **Palet Warna Rust & Ruby**: Mengombinasikan warna khas tembaga/perunggu Rust (`#CE412B`, `#E57353`) dengan crimson dan garnet mewah khas Ruby (`#CC342D`, `#700010`).
+* **Dark Glassmorphic Surface**: Berlatarbelakang obsidian gelap (`#0A0A0D`) dengan aksen ambient radial glow dan kartu kontainer transparan ber-filter *blur*.
+* **Live In-Browser Benchmark Widget**: Fitur interaktif di halaman utama untuk menguji latensi pemrosesan data in-process Rust FFI secara langsung. Developer dapat memilih 10.000 hingga 100.000 data point dan mengevaluasi throughput per detik secara *real-time*.
+* **Status Arsitektur Terintegrasi**: Menampilkan status aktif FFI Magnus 0.9, pelepasan GVL, jumlah CPU core yang terdeteksi oleh Rayon, serta status adapter database.
+
+---
+
+## 4. Prasyarat dan Cara Instalasi
 
 ### Prasyarat Sistem
 * **Ruby**: Versi 3.4.x atau lebih baru beserta header development (`ruby.h`).
@@ -170,7 +192,7 @@ Server Rails akan aktif di `http://localhost:3000`.
 
 ---
 
-## 4. Panduan Pembuatan Komponen Aplikasi
+## 5. Panduan Pembuatan Komponen Aplikasi
 
 Framework ini mempertahankan 100% alur kerja Rails sambil menyediakan akselerasi Rust.
 
@@ -317,7 +339,7 @@ Jika Anda ingin menambahkan fungsi native baru di sisi Rust:
 
 ---
 
-## 5. Panduan Pengujian (Testing)
+## 6. Panduan Pengujian (Testing)
 
 Framework ini menyediakan tiga tingkatan pengujian untuk memastikan stabilitas:
 
@@ -341,7 +363,7 @@ Menjalankan pengujian `cargo test` langsung di dalam crate `ext/rust_backend`.
 
 ---
 
-## 6. Prinsip Arsitektur Anti-Spaghetti Code
+## 7. Prinsip Arsitektur Anti-Spaghetti Code
 
 Untuk menjaga performa dan keterbacaan kode seiring pertumbuhan proyek:
 
