@@ -18,6 +18,9 @@ FileUtils.chdir APP_ROOT do
   puts "\n== Compiling Rust extension =="
   system! "bin/rake rust:build"
 
+  puts "\n== Installing railst CLI command =="
+  system! "bin/railst install"
+
   # puts "\n== Copying sample files =="
   # unless File.exist?("config/database.yml")
   #   FileUtils.cp "config/database.yml.sample", "config/database.yml"
