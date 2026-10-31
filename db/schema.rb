@@ -10,12 +10,5 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_31_075811) do
-  create_table "data_points", force: :cascade do |t|
-    t.string "device_id"
-    t.float "value"
-    t.string "status"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-  end
+ActiveRecord::Schema[8.1].define(version: 0) do
 end
