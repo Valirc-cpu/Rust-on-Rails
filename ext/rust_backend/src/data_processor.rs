@@ -99,3 +99,36 @@ pub fn aggregate_metrics(ruby: &Ruby, records: RArray, metric_field: String) -> 
 
     json_to_rval(ruby, &summary)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parallel_reduction_metrics() {
+        let records = vec![
+            json!({ "reading": 10.0 }),
+            json!({ "reading": 20.0 }),
+            json!({ "reading": 30.0 }),
+        ];
+
+        let target_field = "reading".to_string();
+        let values: Vec<f64> = records
+            .into_par_iter()
+            .filter_map(|rec| {
+                if let JsonValue::Object(map) = rec {
+                    map.get(&target_field).and_then(|v| v.as_f64())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(values.len(), 3);
+        let sum: f64 = values.par_iter().sum();
+        assert_eq!(sum, 60.0);
+        let count = values.len();
+        let avg = sum / count as f64;
+        assert_eq!(avg, 20.0);
+    }
+}
