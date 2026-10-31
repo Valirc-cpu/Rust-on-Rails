@@ -3,8 +3,99 @@
 
 require "pathname"
 require "fileutils"
+require "socket"
+require "open3"
 
 module Railst
+  module Terminal
+    def self.color?
+      $stdout.tty? && ENV["NO_COLOR"].nil?
+    end
+
+    def self.badge(text, bg: :green, fg: :black)
+      return "[#{text}]" unless color?
+
+      bg_code = case bg
+                when :green then "42"
+                when :red then "41"
+                when :yellow then "43"
+                when :blue then "44"
+                when :cyan then "46"
+                when :magenta then "45"
+                else "40"
+                end
+
+      fg_code = case fg
+                when :black then "30"
+                when :white then "97"
+                when :bright_white then "1;37"
+                else "37"
+                end
+
+      "\e[#{fg_code};#{bg_code}m\e[1m #{text} \e[0m"
+    end
+
+    def self.bold(text)
+      color? ? "\e[1m#{text}\e[0m" : text.to_s
+    end
+
+    def self.dim(text)
+      color? ? "\e[90m#{text}\e[0m" : text.to_s
+    end
+
+    def self.cyan(text)
+      color? ? "\e[36m#{text}\e[0m" : text.to_s
+    end
+
+    def self.bold_cyan(text)
+      color? ? "\e[1;36m#{text}\e[0m" : text.to_s
+    end
+
+    def self.yellow(text)
+      color? ? "\e[33m#{text}\e[0m" : text.to_s
+    end
+
+    def self.bold_yellow(text)
+      color? ? "\e[1;33m#{text}\e[0m" : text.to_s
+    end
+
+    def self.red(text)
+      color? ? "\e[31m#{text}\e[0m" : text.to_s
+    end
+
+    def self.bold_red(text)
+      color? ? "\e[1;31m#{text}\e[0m" : text.to_s
+    end
+
+    def self.green(text)
+      color? ? "\e[32m#{text}\e[0m" : text.to_s
+    end
+
+    def self.bold_green(text)
+      color? ? "\e[1;32m#{text}\e[0m" : text.to_s
+    end
+
+    def self.color_status(code, msg)
+      return "#{code} #{msg}" unless color?
+
+      case code.to_i
+      when 200..299 then "\e[32m#{code} #{msg}\e[0m"
+      when 300..399 then "\e[36m#{code} #{msg}\e[0m"
+      when 400..499 then "\e[33m#{code} #{msg}\e[0m"
+      else "\e[31m#{code} #{msg}\e[0m"
+      end
+    end
+
+    def self.format_request_log(method, path, code, status_text, duration)
+      time_str = Time.now.strftime("%Y-%m-%d %H:%M:%S")
+      target_len = 50
+      lead = "  #{dim(time_str)}  #{bold(method.ljust(6))} #{path} "
+      dots_count = [target_len - (method.length + 1 + path.length), 3].max
+      dots = dim("." * dots_count)
+      "#{lead}#{dots} #{color_status(code, status_text)} #{dim("~ #{duration}ms")}"
+    end
+  end
+
   class CLI
     def self.start(args = ARGV)
       new(args).run
@@ -45,7 +136,7 @@ module Railst
         if project_root && File.exist?(project_root.join("bin/rails"))
           system_in_root("bin/rails", @command, *@args)
         else
-          puts "Unknown command: #{@command}"
+          puts "#{Terminal.badge("ERROR", bg: :red, fg: :white)} Unknown command: #{@command}"
           show_help
           exit 1
         end
@@ -68,45 +159,343 @@ module Railst
 
     def require_project_root!
       unless project_root
-        abort "Error: You must run this command inside a Rust-on-Ruby project directory."
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} You must run this command inside a Rust-on-Ruby project directory."
+        puts ""
+        exit 1
       end
     end
 
-    def system_in_root(*cmd)
+    def system_in_root(*cmd, exit_on_fail: true)
       require_project_root!
+      success = false
+      exit_code = 0
+
       Dir.chdir(project_root) do
-        exit_code = system(*cmd)
-        exit(exit_code ? 0 : 1)
+        Open3.popen3(*cmd) do |stdin, stdout, stderr, wait_thr|
+          child_pid = wait_thr.pid
+          sig_handler = proc do
+            Process.kill("INT", child_pid) rescue nil
+            wait_thr.join(5) rescue nil
+            exit(130)
+          end
+          trap("INT", &sig_handler)
+          trap("TERM", &sig_handler)
+
+          err_t = Thread.new do
+            stderr.each_line do |l|
+              $stderr.puts l unless l.include?("VIPS-WARNING")
+            end
+          end
+
+          out_t = Thread.new do
+            stdout.each_line do |l|
+              $stdout.puts l
+            end
+          end
+
+          status = wait_thr.value
+          err_t.join
+          out_t.join
+          success = status.success?
+          exit_code = status.exitstatus || (success ? 0 : 1)
+        end
       end
+
+      exit(exit_code) if exit_on_fail && !success
+      success
+    end
+
+    def parse_server_options(args)
+      options = {
+        host: "127.0.0.1",
+        port: 3000,
+        environment: ENV.fetch("RAILS_ENV", "development"),
+        find_port: false,
+        verbose: false,
+        passthrough: []
+      }
+
+      i = 0
+      while i < args.length
+        arg = args[i]
+        case arg
+        when "-p", "--port"
+          i += 1
+          options[:port] = args[i].to_i
+        when /\A-p(\d+)\z/
+          options[:port] = $1.to_i
+        when /\A--port=(\d+)\z/
+          options[:port] = $1.to_i
+        when "-b", "-h", "--binding", "--host"
+          i += 1
+          options[:host] = args[i]
+        when /\A-b(.+)\z/, /\A--binding=(.+)\z/, /\A--host=(.+)\z/
+          options[:host] = $1
+        when "-e", "--environment"
+          i += 1
+          options[:environment] = args[i]
+        when /\A-e(.+)\z/, /\A--environment=(.+)\z/
+          options[:environment] = $1
+        when "-f", "--find-port"
+          options[:find_port] = true
+        when "-v", "--verbose"
+          options[:verbose] = true
+        else
+          options[:passthrough] << arg
+        end
+        i += 1
+      end
+
+      options
+    end
+
+    def port_in_use?(host, port)
+      check_hosts = [host]
+      check_hosts << "127.0.0.1" if host == "0.0.0.0" || host == "localhost"
+      check_hosts << "0.0.0.0" if host == "127.0.0.1"
+
+      check_hosts.uniq.each do |h|
+        server = TCPServer.new(h, port)
+        server.close
+      rescue Errno::EADDRINUSE, Errno::EACCES
+        return true
+      rescue => _
+      end
+      false
+    end
+
+    def find_available_port(host, starting_port, max_tries = 10)
+      candidate = starting_port
+      max_tries.times do
+        return candidate unless port_in_use?(host, candidate)
+        candidate += 1
+      end
+      nil
     end
 
     def run_server
       require_project_root!
+
+      # Ensure native extension is built
       so_path = project_root.join("lib/rust_backend/rust_backend.so")
       unless File.exist?(so_path)
-        puts "[railst] Compiled Rust backend not found. Building first..."
-        system_in_root("bin/rake", "rust:build")
+        puts ""
+        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Compiled Rust backend not found. Building native extension..."
+        puts ""
+        build_ok = system_in_root("bin/rake", "rust:build", exit_on_fail: false)
+        unless build_ok
+          puts ""
+          puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to compile native Rust backend."
+          puts ""
+          exit 1
+        end
       end
 
-      if File.exist?(project_root.join("bin/dev"))
-        system_in_root("bin/dev", *@args)
-      else
-        system_in_root("bin/rails", "server", *@args)
+      opts = parse_server_options(@args)
+      host = opts[:host]
+      port = opts[:port]
+      env_name = opts[:environment]
+      verbose = opts[:verbose]
+
+      # Check port availability
+      if port_in_use?(host, port)
+        if opts[:find_port]
+          next_port = find_available_port(host, port + 1)
+          if next_port
+            puts ""
+            puts "   #{Terminal.badge("WARN", bg: :yellow, fg: :black)} Port #{port} is occupied. Selected port #{next_port} instead."
+            port = next_port
+          else
+            print_port_error(host, port)
+            exit 1
+          end
+        else
+          suggested_port = find_available_port(host, port + 1) || (port + 1)
+          print_port_error(host, port, suggested_port)
+          exit 1
+        end
       end
+
+      execute_server(host, port, env_name, verbose, opts[:passthrough])
+    end
+
+    def print_port_error(host, port, suggested_port = nil)
+      puts ""
+      puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to listen on #{host}:#{port} (reason: Address already in use)."
+      puts ""
+      puts "  #{Terminal.dim("Port")} #{Terminal.bold(port)} #{Terminal.dim("is currently occupied by another process.")}"
+      if suggested_port
+        puts "  #{Terminal.dim("Try specifying a different port:")}"
+        puts "    #{Terminal.bold_yellow("railst run -p #{suggested_port}")}"
+        puts ""
+        puts "  #{Terminal.dim("Or run with automatic port selection:")}"
+        puts "    #{Terminal.bold_yellow("railst run --find-port")}"
+      end
+      puts ""
+    end
+
+    def print_server_banner(host, port, env_name)
+      display_host = (host == "0.0.0.0") ? "127.0.0.1" : host
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Server running on #{Terminal.bold_cyan("[http://#{display_host}:#{port}]")}."
+      puts ""
+      puts "  #{Terminal.dim("Press")} #{Terminal.bold("Ctrl+C")} #{Terminal.dim("to stop the server")}"
+      puts ""
+      puts "  #{Terminal.dim("Environment")} #{Terminal.dim(".........................................")} #{env_name}"
+      puts "  #{Terminal.dim("Rust Backend")} #{Terminal.dim(".......................")} #{Terminal.green("Rayon + Magnus 0.9 (active)")}"
+      puts ""
+    end
+
+    def execute_server(host, port, env_name, verbose, passthrough)
+      cmd_env = {
+        "VIPS_WARNING" => "0",
+        "G_MESSAGES_DEBUG" => "none",
+        "PATH" => "#{ENV['HOME']}/.local/share/gem/ruby/3.4.0/bin:#{ENV['HOME']}/.local/bin:#{ENV['HOME']}/.cargo/bin:#{ENV['PATH']}"
+      }
+
+      cmd = ["bin/rails", "server", "-b", host, "-p", port.to_s, "-e", env_name, *passthrough]
+      server_ready = false
+      current_request = nil
+      err_lines = []
+      child_pid = nil
+
+      Dir.chdir(project_root) do
+        Open3.popen3(cmd_env, *cmd) do |stdin, stdout, stderr, wait_thr|
+          child_pid = wait_thr.pid
+
+          # Signal trapping for clean shutdown
+          shutdown_proc = proc do
+            if child_pid
+              begin
+                Process.kill("INT", child_pid)
+              rescue Errno::ESRCH
+              end
+              wait_thr.join(5) rescue nil
+            end
+            puts ""
+            puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Server stopped."
+            puts ""
+            exit(0)
+          end
+
+          trap("INT", &shutdown_proc)
+          trap("TERM", &shutdown_proc)
+
+          err_thread = Thread.new do
+            stderr.each_line do |line|
+              next if line.include?("VIPS-WARNING")
+
+              if verbose
+                $stderr.puts line
+              else
+                err_lines << line
+                # Display direct errors or exceptions during request execution
+                if line =~ /error|fatal|exception/i
+                  $stderr.puts "  #{Terminal.red(line.strip)}"
+                end
+              end
+            end
+          end
+
+          out_thread = Thread.new do
+            stdout.each_line do |line|
+              if line.include?("Listening on") || line.include?("Use Ctrl-C to stop")
+                unless server_ready
+                  server_ready = true
+                  print_server_banner(host, port, env_name)
+                end
+                next
+              end
+
+              # Suppress Puma boot noise
+              next if line =~ /^\s*(=>|\*\s*(Puma|Ruby|Min|Max|Environment|PID)|Exiting|- Gracefully)/
+              next if line =~ /Puma starting in single mode/
+              next if line =~ /^(=== puma shutdown|- Goodbye!)/
+              next if line.strip.empty? && !server_ready
+
+              if verbose
+                puts line
+              else
+                # Clean request formatting
+                if line =~ /^Started ([A-Z]+) "([^"]+)"/
+                  current_request = { method: $1, path: $2, time: Time.now }
+                elsif line =~ /^Completed (\d+) ([^ ]+) in ([\d\.]+)ms/
+                  code = $1
+                  status_text = $2
+                  duration = $3
+                  method = current_request ? current_request[:method] : "REQ"
+                  path = current_request ? current_request[:path] : "/"
+                  puts Terminal.format_request_log(method, path, code, status_text, duration)
+                  current_request = nil
+                elsif line =~ /error|fatal|exception/i
+                  puts "  #{Terminal.red(line.strip)}"
+                end
+              end
+            end
+          end
+
+          status = wait_thr.value
+          out_thread.join
+          err_thread.join
+
+          unless server_ready
+            print_boot_failure(err_lines)
+            exit(status.exitstatus || 1)
+          end
+        end
+      end
+    end
+
+    def print_boot_failure(err_lines)
+      error_msg = err_lines.find { |l| l =~ /Error|fatal|Exception/i } || err_lines.first || "Server process terminated unexpectedly."
+      puts ""
+      puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to start Railst development server."
+      puts ""
+      puts "  #{Terminal.bold(error_msg.strip)}"
+
+      if error_msg.include?("PendingMigrationError")
+        puts ""
+        puts "  #{Terminal.dim("Hint: You have pending database migrations. Run:")}"
+        puts "    #{Terminal.bold_yellow("railst db migrate")}"
+      end
+
+      puts ""
+      puts "  #{Terminal.dim("Run with")} #{Terminal.bold_yellow("--verbose")} #{Terminal.dim("to inspect the complete backtrace.")}"
+      puts ""
     end
 
     def run_build
       require_project_root!
-      system_in_root("bin/rake", "rust:build")
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Compiling Magnus Rust backend extension..."
+      puts ""
+      ok = system_in_root("bin/rake", "rust:build", exit_on_fail: false)
+      if ok
+        puts ""
+        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Rust backend compiled successfully."
+        puts ""
+      else
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Rust compilation failed."
+        puts ""
+        exit 1
+      end
     end
 
     def run_test
       require_project_root!
       if @args.empty?
-        puts "[railst] Running native Rust tests..."
-        rust_ok = system("bin/rake rust:test", chdir: project_root.to_s)
-        puts "\n[railst] Running Rails test suite..."
-        rails_ok = system("bin/rails test", chdir: project_root.to_s)
+        puts ""
+        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Running native Rust tests..."
+        puts ""
+        rust_ok = system_in_root("bin/rake", "rust:test", exit_on_fail: false)
+
+        puts ""
+        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Running Rails test suite..."
+        puts ""
+        rails_ok = system_in_root("bin/rails", "test", exit_on_fail: false)
+
         exit((rust_ok && rails_ok) ? 0 : 1)
       else
         system_in_root("bin/rails", "test", *@args)
@@ -125,7 +514,9 @@ module Railst
 
     def run_console
       require_project_root!
-      system_in_root("bin/rails", "console", *@args)
+      Dir.chdir(project_root) do
+        exec("bin/rails", "console", *@args)
+      end
     end
 
     def run_setup
@@ -141,30 +532,36 @@ module Railst
 
     def run_clean
       require_project_root!
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Cleaning Rust build artifacts..."
+      puts ""
       system_in_root("bin/rake", "rust:clean")
     end
 
     def run_install_cli
       user_gem_bin = `ruby -r rubygems -e "puts Gem.user_dir" 2>/dev/null`.strip
-      dest_dir = if !user_gem_bin.empty? && File.directory?(user_gem_bin)
-        File.join(user_gem_bin, "bin")
-      else
-        File.expand_path("~/.local/bin")
-      end
+      dest_dirs = []
+      dest_dirs << File.join(user_gem_bin, "bin") if !user_gem_bin.empty? && File.directory?(user_gem_bin)
+      dest_dirs << File.expand_path("~/.local/bin")
 
-      FileUtils.mkdir_p(dest_dir)
-      dest_path = File.join(dest_dir, "railst")
       source_script = File.expand_path(__FILE__)
 
-      FileUtils.cp(source_script, dest_path)
-      File.chmod(0755, dest_path)
+      dest_dirs.uniq.each do |dest_dir|
+        FileUtils.mkdir_p(dest_dir)
+        dest_path = File.join(dest_dir, "railst")
+        FileUtils.cp(source_script, dest_path)
+        File.chmod(0755, dest_path)
+        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Installed railst CLI to: #{dest_path}"
+      end
 
-      puts "[railst] Successfully installed railst CLI to: #{dest_path}"
-      puts "[railst] You can now run 'railst <command>' from any directory!"
+      puts ""
+      puts "  #{Terminal.dim("You can now run")} #{Terminal.bold_cyan("railst <command>")} #{Terminal.dim("from any directory!")}"
+      puts ""
     end
 
     def show_help
       puts <<~HELP
+
         Usage: railst <command> [options]
 
         Available Commands:
@@ -180,12 +577,22 @@ module Railst
           railst install             Install railst command globally into user bin directory
           railst help                Show this help message
 
+        Options for 'railst run':
+          -p, --port <port>          Specify server port (default: 3000)
+          -b, --binding <host>       Specify IP binding (default: 127.0.0.1)
+          -e, --environment <env>    Specify environment (default: development)
+          -f, --find-port            Auto-select next available port if default is occupied
+          -v, --verbose              Show detailed server and database logs
+
         Examples:
           railst run
+          railst run -p 3001
+          railst run --find-port
           railst g rust:resource SensorData device_id:string value:float
           railst db migrate
           railst test
           railst ci
+
       HELP
     end
   end
