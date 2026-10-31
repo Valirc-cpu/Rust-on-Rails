@@ -37,7 +37,7 @@ Developers only need to install the CLI once to start creating Rust on Rails app
 
 ### Option A: One-Line Installer Script (Recommended)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HarmlessValve/Rust-on-Rails/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Valirc-cpu/Rust-on-Rails/main/install.sh | bash
 # Or if this repository is already cloned locally:
 ./install.sh
 ```

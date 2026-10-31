@@ -11,7 +11,7 @@ gem install railst
 
 ### Via One-Line Shell Script
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HarmlessValve/Rust-on-Rails/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Valirc-cpu/Rust-on-Rails/main/install.sh | bash
 ```
 
 ## Quick Start
