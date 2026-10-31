@@ -1,23 +1,23 @@
-<div class="railst-container">
-  <!-- Navigation Header -->
-  <header class="railst-nav">
+<!-- Top Navigation (top-nav per DESIGN.md) -->
+<header class="top-nav">
+  <div class="railst-container" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
     <a href="/" class="nav-brand">
-      <div class="brand-icon-box">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <!-- Combined Gear & Gem Emblem -->
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      <div class="brand-mark">
+        <!-- Claude-style 4-Spoke Radial Spike Glyph in Rust Copper & Ruby -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="2" x2="12" y2="22"></line>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+          <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
         </svg>
       </div>
-      <div>
-        <span class="brand-name">Railst</span>
-        <span class="brand-badge">Engine</span>
-      </div>
+      <span class="brand-title brand-name">Railst</span>
+      <span class="brand-badge">Engine</span>
     </a>
 
-    <div class="nav-badges">
+    <div class="nav-links">
       <span class="status-pill">
-        <span class="dot-pulse"></span>
+        <span class="dot-status"></span>
         Rust Backend: Active
       </span>
       <span class="status-pill">
@@ -26,196 +26,253 @@
       <span class="status-pill">
         Ruby <%= RUBY_VERSION %>
       </span>
-      <a href="/up" target="_blank" class="status-pill" title="Health Check Status">
+      <a href="/up" target="_blank" class="status-pill" title="Health Check">
         Health: 200 OK
       </a>
+      <a href="#benchmark" class="button-primary" style="height: 36px; padding: 0 16px; font-size: 13px;">
+        Test Performance
+      </a>
     </div>
-  </header>
+  </div>
+</header>
 
-  <!-- Hero Section -->
-  <main>
-    <section class="railst-hero">
-      <div class="hero-tag">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
-        In-Process C-ABI // Global VM Lock Bypass
+<main class="railst-container">
+  <!-- Hero Section (hero-band per DESIGN.md) -->
+  <section class="hero-band">
+    <div class="badge-coral">
+      In-Process C-ABI // Global VM Lock Bypass
+    </div>
+
+    <h1 class="hero-headline">
+      The Velocity of Rails.<br>
+      The Pure Power of <em>Rust</em>.
+    </h1>
+
+    <p class="hero-body">
+      An editorial, in-process computing framework pairing the rapid ergonomics of Ruby on Rails 8 with native multi-core Rust acceleration through Magnus 0.9 and Rayon.
+    </p>
+
+    <div class="hero-actions">
+      <a href="#benchmark" class="button-primary">
+        Run In-Process Benchmark
+      </a>
+      <a href="#commands" class="button-secondary">
+        Explore railst CLI
+      </a>
+    </div>
+  </section>
+
+  <!-- Interactive Product Mockup / Code Window (code-window-card per DESIGN.md) -->
+  <section id="benchmark" class="code-window-card">
+    <div class="code-window-header">
+      <div class="window-dots">
+        <div class="window-dot"></div>
+        <div class="window-dot"></div>
+        <div class="window-dot"></div>
+      </div>
+      <div class="window-title">ext/rust_backend/src/data_processor.rs</div>
+      <div style="font-family: var(--font-code); font-size: 11px; color: var(--colors-on-dark-soft);">
+        Magnus 0.9 + Rayon (<%= @cpu_cores %> Cores)
+      </div>
+    </div>
+
+    <div class="code-window-body">
+      <div class="benchmark-layout">
+        <!-- Code Window Display -->
+        <div class="benchmark-code-pane">
+          <div><span class="code-comment">// High-performance parallel reduction with GVL released</span></div>
+          <div><span class="code-keyword">pub fn</span> <span class="code-fn">aggregate_metrics</span>(items: &amp;[<span class="code-type">Record</span>]) -&gt; <span class="code-type">Metrics</span> {</div>
+          <div>&nbsp;&nbsp;items.<span class="code-fn">par_iter</span>()</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;.<span class="code-fn">fold</span>(|| <span class="code-type">Acc</span>::default(), |<span class="code-keyword">mut</span> acc, r| {</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;acc.sum += r.val;</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;acc.count += <span class="code-type">1</span>;</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;acc</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;})</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;.<span class="code-fn">reduce</span>(|| <span class="code-type">Acc</span>::default(), |a, b| a + b)</div>
+          <div>}</div>
+        </div>
+
+        <!-- Interactive Control Panel -->
+        <div class="benchmark-control-pane">
+          <div>
+            <h3 class="control-title">In-Memory Latency Test</h3>
+            <p class="control-desc">
+              Measures live C-ABI data exchange latency from Ruby to the native Rayon multi-threaded engine without HTTP serialization overhead.
+            </p>
+
+            <label for="benchmark-count" class="result-label">Dataset Scale</label>
+            <select id="benchmark-count" class="control-select">
+              <option value="10000">10,000 Records</option>
+              <option value="50000" selected>50,000 Records</option>
+              <option value="100000">100,000 Records</option>
+            </select>
+
+            <button id="btn-run-benchmark" class="button-primary" style="width: 100%;">
+              Execute Benchmark
+            </button>
+          </div>
+
+          <div class="results-grid">
+            <div class="result-card">
+              <div class="result-label">Latency</div>
+              <div id="metric-latency" class="result-value">0.28 ms</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">Processed</div>
+              <div id="metric-records" class="result-value ruby">50,000</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">Throughput</div>
+              <div id="metric-throughput" class="result-value">~178k/s</div>
+            </div>
+            <div class="result-card">
+              <div class="result-label">Engine Mode</div>
+              <div class="result-value green">Non-GVL</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Editorial Feature Grid (feature-card per DESIGN.md) -->
+  <section style="margin-bottom: var(--spacing-section);">
+    <div class="feature-section-header">
+      <div class="section-label">Core Architecture</div>
+      <h2 class="section-title">Engineered for Compute-Heavy Workloads</h2>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div>
+          <div class="card-glyph">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            </svg>
+          </div>
+          <h3 class="card-title">In-Process C-ABI Bridge</h3>
+          <p class="card-body">
+            Direct memory communication via Magnus 0.9 without socket serialization or network overhead. Ruby hashes and arrays seamlessly convert to native Rust data types.
+          </p>
+        </div>
+        <div class="card-meta">
+          lib/rust_backend/rust_backend.so
+        </div>
       </div>
 
-      <h1 class="hero-title">
-        <span class="gradient-rust">The Velocity of Rails.</span><br>
-        <span class="gradient-ruby">The Pure Power of Rust.</span>
-      </h1>
-
-      <p class="hero-desc">
-        A high-performance computing framework combining the developer ergonomics of Ruby on Rails 8 with an in-process native Rust backend powered by Magnus 0.9 and Rayon multi-threading.
-      </p>
-
-      <div class="hero-actions">
-        <a href="#benchmark" class="btn-primary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          Run In-Process Benchmark
-        </a>
-        <a href="#cli" class="btn-secondary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="4 17 10 11 4 5"></polyline>
-            <line x1="12" y1="19" x2="20" y2="19"></line>
-          </svg>
-          Explore Railst CLI
-        </a>
-      </div>
-    </section>
-
-    <!-- Interactive Live Benchmark Section -->
-    <section id="benchmark" class="benchmark-section">
-      <div class="benchmark-header">
-        <div class="benchmark-title-wrap">
-          <div class="brand-icon-box" style="width: 32px; height: 32px; border-radius: 8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <div class="feature-card">
+        <div>
+          <div class="card-glyph" style="color: var(--colors-ruby);">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
           </div>
-          <div>
-            <h2 class="benchmark-title">Live In-Process Rust Benchmark</h2>
-            <p class="benchmark-subtitle">Tests Ruby-to-Rust C-ABI data passing, Rayon parallel reduction, and GVL bypass latency.</p>
+          <h3 class="card-title">Global VM Lock Bypass</h3>
+          <p class="card-body">
+            Releases the Ruby VM Lock (<code style="font-family: var(--font-code); font-size: 13px; color: var(--colors-primary);">rb_thread_call_without_gvl</code>) during heavy calculations, allowing Rayon parallel iterators to utilize every CPU core.
+          </p>
+        </div>
+        <div class="card-meta">
+          ext/rust_backend/src/gvl.rs
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div>
+          <div class="card-glyph">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            </svg>
           </div>
+          <h3 class="card-title">ActiveRecord Integration</h3>
+          <p class="card-body">
+            Maintains 100% Rails ORM conventions. Models include the <code style="font-family: var(--font-code); font-size: 13px; color: var(--colors-primary);">RustBacked</code> concern to access batch processing and aggregate reduction without writing C bindings.
+          </p>
         </div>
-
-        <div class="benchmark-controls">
-          <select id="benchmark-count" class="benchmark-select">
-            <option value="10000">10,000 Records</option>
-            <option value="50000" selected>50,000 Records</option>
-            <option value="100000">100,000 Records</option>
-          </select>
-          <button id="btn-run-benchmark" class="btn-primary" style="padding: 8px 18px; font-size: 0.88rem;">
-            Run Benchmark
-          </button>
+        <div class="card-meta">
+          app/models/concerns/rust_backed.rb
         </div>
       </div>
+    </div>
+  </section>
 
-      <div class="benchmark-output-grid">
-        <div class="metric-tile">
-          <div class="metric-label">Execution Latency</div>
-          <div id="metric-latency" class="metric-value highlight-rust">0.24 ms</div>
-          <div class="metric-sub">Pure in-memory FFI bridge</div>
-        </div>
-
-        <div class="metric-tile">
-          <div class="metric-label">Records Processed</div>
-          <div id="metric-records" class="metric-value">50,000</div>
-          <div class="metric-sub">Rayon parallel reduction</div>
-        </div>
-
-        <div class="metric-tile">
-          <div class="metric-label">Throughput Rate</div>
-          <div id="metric-throughput" class="metric-value highlight-ruby">~208,300/s</div>
-          <div class="metric-sub">Multi-threaded crunching</div>
-        </div>
-
-        <div class="metric-tile">
-          <div class="metric-label">Threading Mode</div>
-          <div id="metric-threads" class="metric-value highlight-green">Non-GVL</div>
-          <div class="metric-sub"><%= @cpu_cores %> Cores Active</div>
-        </div>
+  <!-- CLI Marquee Band (cta-band-dark per DESIGN.md) -->
+  <section id="commands" class="cli-band">
+    <div>
+      <div style="font-family: var(--font-body); font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--colors-primary); margin-bottom: 8px;">
+        Command-Line Toolchain
       </div>
-    </section>
+      <h2 class="cli-band-title">Designed for Modern Developer Velocity</h2>
+      <p class="cli-band-desc">
+        The built-in <code style="font-family: var(--font-code); color: var(--colors-primary);">railst</code> CLI utility provides a clean developer interface inspired by Laravel, complete with automated port collision handling, real-time request tracking, and zero emoji clutter.
+      </p>
+      <a href="/up" target="_blank" class="button-secondary-on-dark">
+        Check System Health (/up)
+      </a>
+    </div>
 
-    <!-- Architecture Features Grid -->
-    <section class="features-grid">
-      <div class="feature-card">
-        <div class="card-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    <div class="terminal-box">
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">railst run -p 3001</span>
+        <span class="term-comment"># Start development server</span>
+      </div>
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">railst run --find-port</span>
+        <span class="term-comment"># Auto-select next free port</span>
+      </div>
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">railst g rust:resource Invoice amount:decimal</span>
+      </div>
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">railst test</span>
+        <span class="term-comment"># Run Rust unit tests and Rails suite</span>
+      </div>
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">railst ci</span>
+        <span class="term-comment"># Full 7-step CI pipeline</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Footer (footer per DESIGN.md) -->
+<footer class="page-footer">
+  <div class="railst-container">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <div class="brand-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="2" x2="12" y2="22"></line>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+            <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"></line>
           </svg>
         </div>
-        <h3 class="card-title">Magnus 0.9 C-ABI Bridge</h3>
-        <p class="card-desc">Direct in-process communication between Ruby and Rust without network sockets, serialization bottlenecks, or HTTP middleware overhead.</p>
+        <span>Railst Framework &middot; Rails 8 + Magnus 0.9 + Rayon</span>
       </div>
 
-      <div class="feature-card">
-        <div class="card-icon" style="color: var(--ruby-light);">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
-        <h3 class="card-title">Automatic GVL Bypass</h3>
-        <p class="card-desc">Safely releases the Ruby VM Lock (<code style="color: var(--rust-light);">rb_thread_call_without_gvl</code>) during computation, enabling full Rayon parallel execution across all CPU cores.</p>
+      <div class="footer-links">
+        <a href="#benchmark" class="footer-link">Benchmark</a>
+        <a href="#commands" class="footer-link">CLI Commands</a>
+        <a href="/up" class="footer-link">Health Status</a>
       </div>
+    </div>
 
-      <div class="feature-card">
-        <div class="card-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-          </svg>
-        </div>
-        <h3 class="card-title">ActiveRecord Integration</h3>
-        <p class="card-desc">Preserves standard Rails migrations and models via the <code style="color: var(--rust-light);">RustBacked</code> concern, providing native <code style="color: var(--ruby-light);">rust_batch_process</code> and <code style="color: var(--ruby-light);">rust_aggregate</code>.</p>
-      </div>
-
-      <div class="feature-card">
-        <div class="card-icon" style="color: var(--ruby-light);">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-        </div>
-        <h3 class="card-title">Laravel-Style Terminal CLI</h3>
-        <p class="card-desc">Elegant developer interface via <code style="color: var(--rust-light);">railst run</code> with graceful port collision detection, live request trackers, and zero emoji clutter.</p>
-      </div>
-    </section>
-
-    <!-- Quickstart Command Section -->
-    <section id="cli" class="terminal-section">
-      <div class="terminal-header">
-        <div class="terminal-dots">
-          <div class="terminal-dot"></div>
-          <div class="terminal-dot"></div>
-          <div class="terminal-dot"></div>
-        </div>
-        <div class="terminal-title">railst CLI Quickstart</div>
-        <div></div>
-      </div>
-      <div class="terminal-body">
-        <div class="terminal-line">
-          <span class="terminal-prompt">$</span>
-          <span class="terminal-cmd">railst run -p 3001</span>
-          <span class="terminal-comment"># Start Rails development server with auto-build</span>
-        </div>
-        <div class="terminal-line">
-          <span class="terminal-prompt">$</span>
-          <span class="terminal-cmd">railst run --find-port</span>
-          <span class="terminal-comment"># Automatically select next free port if 3000 is occupied</span>
-        </div>
-        <div class="terminal-line">
-          <span class="terminal-prompt">$</span>
-          <span class="terminal-cmd">railst g rust:resource Metric device_id:string value:float</span>
-          <span class="terminal-comment"># Scaffold Rust-backed model, migration, and controller</span>
-        </div>
-        <div class="terminal-line">
-          <span class="terminal-prompt">$</span>
-          <span class="terminal-cmd">railst test</span>
-          <span class="terminal-comment"># Run native Rust unit tests and Rails test suite</span>
-        </div>
-        <div class="terminal-line">
-          <span class="terminal-prompt">$</span>
-          <span class="terminal-cmd">railst ci</span>
-          <span class="terminal-comment"># Execute full 7-step Continuous Integration suite</span>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Footer -->
-  <footer class="railst-footer">
-    <p>Railst Framework &middot; Combining Ruby on Rails 8 and pure Rust Magnus 0.9 &middot; MIT License</p>
-  </footer>
-</div>
+    <p class="footer-copy">
+      Released under the MIT License. Built with Ruby on Rails 8 and pure native Rust.
+    </p>
+  </div>
+</footer>
 
 <script>
   document.addEventListener("DOMContentLoaded", () => {
@@ -224,20 +281,18 @@
     const latencyEl = document.getElementById("metric-latency");
     const recordsEl = document.getElementById("metric-records");
     const throughputEl = document.getElementById("metric-throughput");
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
 
-    if (btn) {
+    if (btn && select) {
       btn.addEventListener("click", async () => {
         const count = parseInt(select.value, 10);
         btn.disabled = true;
-        btn.textContent = "Processing...";
+        btn.textContent = "Computing...";
 
         try {
           const res = await fetch("/benchmark", {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
-              "X-CSRF-Token": csrfToken || ""
+              "Content-Type": "application/json"
             },
             body: JSON.stringify({ count: count })
           });
@@ -257,7 +312,7 @@
           console.error(err);
         } finally {
           btn.disabled = false;
-          btn.textContent = "Run Benchmark";
+          btn.textContent = "Execute Benchmark";
         }
       });
     }
