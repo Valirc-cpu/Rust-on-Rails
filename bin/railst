@@ -16,21 +16,21 @@ module Railst
       return "[#{text}]" unless color?
 
       bg_code = case bg
-                when :green then "42"
-                when :red then "41"
-                when :yellow then "43"
-                when :blue then "44"
-                when :cyan then "46"
-                when :magenta then "45"
-                else "40"
-                end
+      when :green then "42"
+      when :red then "41"
+      when :yellow then "43"
+      when :blue then "44"
+      when :cyan then "46"
+      when :magenta then "45"
+      else "40"
+      end
 
       fg_code = case fg
-                when :black then "30"
-                when :white then "97"
-                when :bright_white then "1;37"
-                else "37"
-                end
+      when :black then "30"
+      when :white then "97"
+      when :bright_white then "1;37"
+      else "37"
+      end
 
       "\e[#{fg_code};#{bg_code}m\e[1m #{text} \e[0m"
     end
@@ -90,7 +90,7 @@ module Railst
       time_str = Time.now.strftime("%Y-%m-%d %H:%M:%S")
       target_len = 50
       lead = "  #{dim(time_str)}  #{bold(method.ljust(6))} #{path} "
-      dots_count = [target_len - (method.length + 1 + path.length), 3].max
+      dots_count = [ target_len - (method.length + 1 + path.length), 3 ].max
       dots = dim("." * dots_count)
       "#{lead}#{dots} #{color_status(code, status_text)} #{dim("~ #{duration}ms")}"
     end
@@ -251,7 +251,7 @@ module Railst
     end
 
     def port_in_use?(host, port)
-      check_hosts = [host]
+      check_hosts = [ host ]
       check_hosts << "127.0.0.1" if host == "0.0.0.0" || host == "localhost"
       check_hosts << "0.0.0.0" if host == "127.0.0.1"
 
@@ -354,7 +354,7 @@ module Railst
         "PATH" => "#{ENV['HOME']}/.local/share/gem/ruby/3.4.0/bin:#{ENV['HOME']}/.local/bin:#{ENV['HOME']}/.cargo/bin:#{ENV['PATH']}"
       }
 
-      cmd = ["bin/rails", "server", "-b", host, "-p", port.to_s, "-e", env_name, *passthrough]
+      cmd = [ "bin/rails", "server", "-b", host, "-p", port.to_s, "-e", env_name, *passthrough ]
       server_ready = false
       current_request = nil
       err_lines = []
