@@ -53,10 +53,79 @@ Arsitektur aplikasi terbagi menjadi dua lapisan utama yang berkomunikasi langsun
   Loader Ruby yang bertugas memuat biner `rust_backend.so`.
 * **`bin/ci`**:
   Runner Continuous Integration lengkap yang menjalankan setup, linter RuboCop, audit keamanan, unit test Rust, dan test suite Rails.
+* **`bin/railst` & `exe/railst`**:
+  Executable CLI mandiri framework `railst` untuk menjalankan semua perintah tanpa mengetik awalan `bin/`.
 
 ---
 
-## 2. Prasyarat dan Cara Instalasi
+## 2. Command CLI `railst` (Menjalankan Perintah Tanpa Awalan `bin/`)
+
+Framework ini menyediakan command line interface bawaan bernama **`railst`** sehingga developer tidak perlu mengetik awalan `bin/` atau `bundle exec`.
+
+### Cara Mengaktifkan Command `railst`
+Di komputer mana pun framework ini di-clone, jalankan perintah setup sekali:
+
+```bash
+bin/setup --skip-server
+# atau jika hanya ingin mengaktifkan CLI:
+bin/railst install
+```
+
+Perintah di atas akan menyalin biner `railst` ke direktori path user (`$(ruby -e 'puts Gem.user_dir')/bin` atau `~/.local/bin`) yang sudah ada di `$PATH`.
+
+### Daftar Perintah `railst` yang Tersedia
+
+* **Menjalankan Server**:
+  ```bash
+  railst run     # atau: railst s
+  ```
+  Otomatis mengecek dan mengompilasi ekstensi Rust jika belum dibangun, lalu menyalakan server Rails.
+
+* **Kompilasi Modul Rust**:
+  ```bash
+  railst build
+  ```
+  Mengompilasi crate `ext/rust_backend` via Cargo dan menempatkan pustaka `.so` di `lib/rust_backend/`.
+
+* **Menjalankan Seluruh Pengujian**:
+  ```bash
+  railst test
+  ```
+  Menjalankan unit test native Rust (`cargo test`) dan Minitest Rails sekaligus.
+
+* **Menjalankan Pipeline CI Lengkap**:
+  ```bash
+  railst ci
+  ```
+  Menjalankan linter RuboCop, scanner keamanan gem & JS, Brakeman, unit test Rust, dan test suite Rails.
+
+* **Scaffolding dan Generator**:
+  ```bash
+  railst g rust:resource Invoice customer:string amount:decimal
+  railst g rust:service HeavyCalculator
+  ```
+
+* **Interactive Console**:
+  ```bash
+  railst c
+  ```
+  Membuka konsol Rails dengan modul `RustBackend` siap pakai.
+
+* **Operasi Database**:
+  ```bash
+  railst db migrate
+  railst db rollback
+  railst db prepare
+  ```
+
+* **Setup Proyek**:
+  ```bash
+  railst setup
+  ```
+
+---
+
+## 3. Prasyarat dan Cara Instalasi
 
 ### Prasyarat Sistem
 * **Ruby**: Versi 3.4.x atau lebih baru beserta header development (`ruby.h`).
@@ -101,7 +170,7 @@ Server Rails akan aktif di `http://localhost:3000`.
 
 ---
 
-## 3. Panduan Pembuatan Komponen Aplikasi
+## 4. Panduan Pembuatan Komponen Aplikasi
 
 Framework ini mempertahankan 100% alur kerja Rails sambil menyediakan akselerasi Rust.
 
@@ -109,7 +178,7 @@ Framework ini mempertahankan 100% alur kerja Rails sambil menyediakan akselerasi
 Untuk membuat resource baru yang otomatis siap memproses data dalam jumlah besar dengan Rust:
 
 ```bash
-bin/rails generate rust:resource Invoice customer:string amount:decimal status:string
+railst g rust:resource Invoice customer:string amount:decimal status:string
 ```
 
 Perintah di atas secara otomatis menghasilkan:
@@ -248,19 +317,19 @@ Jika Anda ingin menambahkan fungsi native baru di sisi Rust:
 
 ---
 
-## 4. Panduan Pengujian (Testing)
+## 5. Panduan Pengujian (Testing)
 
 Framework ini menyediakan tiga tingkatan pengujian untuk memastikan stabilitas:
 
 ### 1. Pengujian CI Menyeluruh (All-in-One Pipeline)
 ```bash
-bin/ci
+railst ci
 ```
 Menjalankan audit linter, scanner kerentanan gem dan importmap, analisis keamanan Brakeman, unit test native Rust, serta integrasi test Rails secara otomatis.
 
 ### 2. Pengujian Test Suite Rails & FFI
 ```bash
-bin/rails test
+railst test
 ```
 Menjalankan pengujian Minitest pada model, controller, dan FFI integration (`test/lib/rust_backend_test.rb`). Hook otomatis akan mengompilasi Rust jika berkas kode native berubah.
 
@@ -272,7 +341,7 @@ Menjalankan pengujian `cargo test` langsung di dalam crate `ext/rust_backend`.
 
 ---
 
-## 5. Prinsip Arsitektur Anti-Spaghetti Code
+## 6. Prinsip Arsitektur Anti-Spaghetti Code
 
 Untuk menjaga performa dan keterbacaan kode seiring pertumbuhan proyek:
 
