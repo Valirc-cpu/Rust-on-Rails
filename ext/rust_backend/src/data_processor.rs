@@ -7,18 +7,23 @@ use serde_json::{json, Value as JsonValue};
 pub fn process_batch(ruby: &Ruby, records: RArray, config: RHash) -> Result<Value, Error> {
     // 1. Convert dynamic Ruby objects to Rust JsonValues while holding GVL
     let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
-
     let raw_config = rval_to_json(config.as_value());
 
-    let multiplier = raw_config
-        .get("multiplier")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
     let compute_field = raw_config
         .get("compute_field")
         .and_then(|v| v.as_str())
         .unwrap_or("value")
         .to_string();
+
+    let multiplier = raw_config
+        .get("multiplier")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
+
+    let offset = raw_config
+        .get("offset")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
 
     // 2. Release GVL and process in parallel across all CPU cores with Rayon
     let processed_records = call_without_gvl(move || {
@@ -35,7 +40,7 @@ pub fn process_batch(ruby: &Ruby, records: RArray, config: RHash) -> Result<Valu
                         })
                         .unwrap_or(0.0);
 
-                    let computed = current_val * multiplier;
+                    let computed = (current_val * multiplier) + offset;
                     map.insert(format!("{}_computed", compute_field), json!(computed));
                     map.insert("processed_by".to_string(), json!("rust_rayon_parallel"));
                     map.insert("gvl_released".to_string(), json!(true));
@@ -52,9 +57,9 @@ pub fn process_batch(ruby: &Ruby, records: RArray, config: RHash) -> Result<Valu
 
 pub fn aggregate_metrics(ruby: &Ruby, records: RArray, metric_field: String) -> Result<Value, Error> {
     let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
-
     let target_field = metric_field.clone();
-    // Release GVL for parallel reduction
+
+    // Release GVL for parallel reduction across all cores
     let (count, sum, min, max) = call_without_gvl(move || {
         let values: Vec<f64> = raw_records
             .into_par_iter()
