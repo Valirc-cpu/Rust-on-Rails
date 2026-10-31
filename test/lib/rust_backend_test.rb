@@ -25,4 +25,29 @@ class RustBackendTest < ActiveSupport::TestCase
     assert_equal "magnus-0.9", result["rust_engine"]
     assert_equal 100, result["price"]
   end
+
+  test "rust process_batch transforms dynamic hashes in parallel with rayon" do
+    input = [
+      { "id" => 1, "value" => 10.0 },
+      { "id" => 2, "value" => 20.0 }
+    ]
+    result = RustBackend.process_batch(input, { "multiplier" => 2.5, "compute_field" => "value" })
+    assert_equal 2, result.size
+    assert_equal 25.0, result.first["value_computed"]
+    assert_equal true, result.first["gvl_released"]
+  end
+
+  test "rust aggregate_metrics computes parallel statistical reductions" do
+    input = [
+      { "score" => 10.0 },
+      { "score" => 30.0 }
+    ]
+    summary = RustBackend.aggregate_metrics(input, "score")
+    assert_equal 2, summary["count"]
+    assert_equal 40.0, summary["sum"]
+    assert_equal 20.0, summary["avg"]
+    assert_equal 10.0, summary["min"]
+    assert_equal 30.0, summary["max"]
+    assert_equal "rayon", summary["parallel_engine"]
+  end
 end
