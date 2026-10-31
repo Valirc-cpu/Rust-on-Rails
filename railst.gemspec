@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = "railst"
-  spec.version       = "0.2.0"
+  spec.version       = "0.2.1"
   spec.authors       = [ "Valirc-cpu" ]
   spec.email         = [ "taltagemilang@gmail.com" ]
   spec.summary       = "High-Performance Data Processing Framework combining Rails 8 and pure Rust"
