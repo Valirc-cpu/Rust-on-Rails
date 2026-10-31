@@ -2,8 +2,8 @@
 # check=error=true
 
 # This Dockerfile is designed for production, not development. Use with Kamal or build'n'run by hand:
-# docker build -t rust_on_ruby .
-# docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name rust_on_ruby rust_on_ruby
+# docker build -t rust_on_rails .
+# docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name rust_on_rails rust_on_rails
 
 # For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
 

@@ -4,9 +4,12 @@
 require "pathname"
 require "fileutils"
 require "socket"
-require "open3"
+require "rbconfig"
+require "etc"
 
 module Railst
+  VERSION = "0.2.0"
+
   module Terminal
     def self.color?
       $stdout.tty? && ENV["NO_COLOR"].nil?
@@ -75,24 +78,560 @@ module Railst
       color? ? "\e[1;32m#{text}\e[0m" : text.to_s
     end
 
-    def self.color_status(code, msg)
-      return "#{code} #{msg}" unless color?
+    def self.magenta(text)
+      color? ? "\e[35m#{text}\e[0m" : text.to_s
+    end
 
-      case code.to_i
-      when 200..299 then "\e[32m#{code} #{msg}\e[0m"
-      when 300..399 then "\e[36m#{code} #{msg}\e[0m"
-      when 400..499 then "\e[33m#{code} #{msg}\e[0m"
-      else "\e[31m#{code} #{msg}\e[0m"
+    def self.bold_magenta(text)
+      color? ? "\e[1;35m#{text}\e[0m" : text.to_s
+    end
+  end
+
+  module Environment
+    def self.toolchains_env
+      env = ENV.to_h
+
+      # Dynamically detect gem user bin, cargo bin, and local bin
+      gem_bin = begin
+        user_dir = `ruby -r rubygems -e "puts Gem.user_dir" 2>/dev/null`.strip
+        File.join(user_dir, "bin") unless user_dir.empty?
+      rescue StandardError
+        nil
+      end
+
+      cargo_bin = File.expand_path("~/.cargo/bin")
+      local_bin = File.expand_path("~/.local/bin")
+
+      current_paths = env.fetch("PATH", "").split(File::PATH_SEPARATOR)
+      [ cargo_bin, local_bin, gem_bin ].compact.each do |p|
+        current_paths.unshift(p) if File.directory?(p) && !current_paths.include?(p)
+      end
+      env["PATH"] = current_paths.join(File::PATH_SEPARATOR)
+
+      # Automatic LLVM / Clang detection for bindgen & rb-sys
+      unless env["LIBCLANG_PATH"]
+        candidate_lib_paths = [
+          File.expand_path("~/.local/lib"),
+          "/usr/lib/llvm-23/lib",
+          "/usr/lib/llvm-22/lib",
+          "/usr/lib/llvm-21/lib",
+          "/usr/lib/llvm-20/lib",
+          "/usr/lib/llvm-19/lib",
+          "/usr/lib/llvm-18/lib",
+          "/usr/lib",
+          "/usr/local/lib"
+        ]
+        found_lib = candidate_lib_paths.find do |dir|
+          File.directory?(dir) && !Dir[File.join(dir, "libclang.so*")].empty?
+        end
+        env["LIBCLANG_PATH"] = found_lib if found_lib
+      end
+
+      unless env["BINDGEN_EXTRA_CLANG_ARGS"]
+        candidate_include_paths = [
+          File.expand_path("~/.local/lib/clang/23/include"),
+          "/usr/lib/clang/23/include",
+          "/usr/lib/clang/22/include",
+          "/usr/lib/clang/21/include",
+          "/usr/lib/clang/20/include",
+          "/usr/lib/clang/19/include",
+          "/usr/lib/clang/18/include"
+        ]
+        found_inc = candidate_include_paths.find { |dir| File.directory?(dir) }
+        env["BINDGEN_EXTRA_CLANG_ARGS"] = "-I#{found_inc}" if found_inc
+      end
+
+      # Quiet down noisy glib / libvips system module warnings
+      env["VIPS_WARNING"] = "0"
+      env["G_MESSAGES_DEBUG"] = "none"
+
+      env
+    end
+  end
+
+  module Templates
+    def self.inject_into(target_dir, source_project_root = nil)
+      target_path = Pathname.new(target_dir)
+
+      if source_project_root && source_project_root.join("ext/rust_backend").exist?
+        # Direct copy from source repository
+        copy_tree(source_project_root.join("ext/rust_backend"), target_path.join("ext/rust_backend"))
+        copy_file_safe(source_project_root.join("app/models/concerns/rust_backed.rb"), target_path.join("app/models/concerns/rust_backed.rb"))
+        copy_file_safe(source_project_root.join("config/initializers/rust_backend.rb"), target_path.join("config/initializers/rust_backend.rb"))
+        copy_file_safe(source_project_root.join("lib/rust_backend.rb"), target_path.join("lib/rust_backend.rb"))
+        copy_file_safe(source_project_root.join("lib/tasks/rust.rake"), target_path.join("lib/tasks/rust.rake"))
+        copy_tree(source_project_root.join("lib/generators/rust"), target_path.join("lib/generators/rust"))
+      else
+        # Self-contained embedded template generation
+        write_embedded_templates(target_path)
+      end
+
+      # Update config/application.rb for autoloading
+      app_rb = target_path.join("config/application.rb")
+      if app_rb.exist?
+        code = app_rb.read
+        autoload_line = "config.autoload_lib(ignore: %w[assets tasks generators rust_backend])"
+        unless code.include?(autoload_line)
+          code.sub!(/class Application < Rails::Application\n/) do |m|
+            "#{m}    #{autoload_line}\n"
+          end
+          app_rb.write(code)
+        end
       end
     end
 
-    def self.format_request_log(method, path, code, status_text, duration)
-      time_str = Time.now.strftime("%Y-%m-%d %H:%M:%S")
-      target_len = 50
-      lead = "  #{dim(time_str)}  #{bold(method.ljust(6))} #{path} "
-      dots_count = [ target_len - (method.length + 1 + path.length), 3 ].max
-      dots = dim("." * dots_count)
-      "#{lead}#{dots} #{color_status(code, status_text)} #{dim("~ #{duration}ms")}"
+    def self.copy_tree(src, dst)
+      return unless src.exist?
+      FileUtils.mkdir_p(dst)
+      FileUtils.cp_r(File.join(src, "."), dst)
+      # Clean any target directory in the copy
+      FileUtils.rm_rf(File.join(dst, "target"))
+    end
+
+    def self.copy_file_safe(src, dst)
+      return unless src.exist?
+      FileUtils.mkdir_p(dst.parent)
+      FileUtils.cp(src, dst)
+    end
+
+    def self.write_embedded_templates(target_path)
+      files = {
+        "ext/rust_backend/Cargo.toml" => cargo_toml_content,
+        "ext/rust_backend/extconf.rb" => extconf_rb_content,
+        "ext/rust_backend/src/lib.rs" => lib_rs_content,
+        "ext/rust_backend/src/gvl.rs" => gvl_rs_content,
+        "ext/rust_backend/src/dynamic_hash.rs" => dynamic_hash_rs_content,
+        "ext/rust_backend/src/data_processor.rs" => data_processor_rs_content,
+        "app/models/concerns/rust_backed.rb" => rust_backed_rb_content,
+        "config/initializers/rust_backend.rb" => initializer_content,
+        "lib/rust_backend.rb" => loader_content,
+        "lib/tasks/rust.rake" => rake_task_content
+      }
+
+      files.each do |rel_path, content|
+        full_path = target_path.join(rel_path)
+        FileUtils.mkdir_p(full_path.parent)
+        full_path.write(content)
+      end
+    end
+
+    def self.cargo_toml_content
+      <<~TOML
+        [package]
+        name = "rust_backend"
+        version = "0.1.0"
+        edition = "2021"
+
+        [lib]
+        crate-type = ["cdylib"]
+
+        [dependencies]
+        magnus = "0.9"
+        rb-sys = "0.9"
+        rayon = "1.10"
+        serde = { version = "1.0", features = ["derive"] }
+        serde_json = "1.0"
+      TOML
+    end
+
+    def self.extconf_rb_content
+      <<~RUBY
+        # frozen_string_literal: true
+
+        require "mkmf"
+        require "rb_sys/mkmf"
+
+        create_rust_makefile("rust_backend/rust_backend")
+      RUBY
+    end
+
+    def self.lib_rs_content
+      <<~RUST
+        use magnus::{Error, Ruby};
+
+        pub mod dynamic_hash;
+        pub mod data_processor;
+        pub mod gvl;
+
+        #[magnus::init]
+        fn init(ruby: &Ruby) -> Result<(), Error> {
+            let module = ruby.define_module("RustBackend")?;
+
+            module.define_singleton_method(
+                "process_batch",
+                magnus::function!(data_processor::process_batch, 2),
+            )?;
+
+            module.define_singleton_method(
+                "aggregate_metrics",
+                magnus::function!(data_processor::aggregate_metrics, 2),
+            )?;
+
+            module.define_singleton_method(
+                "transform_record",
+                magnus::function!(data_processor::transform_record, 2),
+            )?;
+
+            Ok(())
+        }
+      RUST
+    end
+
+    def self.gvl_rs_content
+      <<~RUST
+        use magnus::rb_sys::rb_thread_call_without_gvl;
+        use std::os::raw::c_void;
+
+        extern "C" fn nogvl_trampoline<F, R>(ptr: *mut c_void) -> *mut c_void
+        where
+            F: FnOnce() -> R,
+        {
+            let f = unsafe { Box::from_raw(ptr as *mut F) };
+            let result = f();
+            Box::into_raw(Box::new(result)) as *mut c_void
+        }
+
+        pub fn call_without_gvl<F, R>(f: F) -> R
+        where
+            F: FnOnce() -> R + Send,
+            R: Send,
+        {
+            let boxed_f = Box::new(f);
+            let ptr = Box::into_raw(boxed_f) as *mut c_void;
+
+            let res_ptr = unsafe {
+                rb_thread_call_without_gvl(
+                    Some(nogvl_trampoline::<F, R>),
+                    ptr,
+                    None,
+                    std::ptr::null_mut(),
+                )
+            };
+
+            let boxed_res = unsafe { Box::from_raw(res_ptr as *mut R) };
+            *boxed_res
+        }
+      RUST
+    end
+
+    def self.dynamic_hash_rs_content
+      <<~RUST
+        use magnus::{value::ReprValue, Error, RArray, RHash, Ruby, Symbol, Value};
+        use serde_json::{Map, Number, Value as JsonValue};
+
+        pub fn rval_to_json(val: Value) -> JsonValue {
+            if val.is_nil() {
+                return JsonValue::Null;
+            }
+            if let Ok(b) = bool::try_convert(val) {
+                return JsonValue::Bool(b);
+            }
+            if let Ok(i) = i64::try_convert(val) {
+                return JsonValue::Number(Number::from(i));
+            }
+            if let Ok(f) = f64::try_convert(val) {
+                if let Some(n) = Number::from_f64(f) {
+                    return JsonValue::Number(n);
+                }
+            }
+            if let Ok(s) = String::try_convert(val) {
+                return JsonValue::String(s);
+            }
+            if let Ok(sym) = Symbol::try_convert(val) {
+                if let Ok(s) = sym.name() {
+                    return JsonValue::String(s.to_string());
+                }
+            }
+            if let Ok(hash) = RHash::try_convert(val) {
+                let mut map = Map::new();
+                let _ = hash.each(|k: Value, v: Value| {
+                    let key_str = if let Ok(s) = String::try_convert(k) {
+                        s
+                    } else if let Ok(sym) = Symbol::try_convert(k) {
+                        sym.name().map(|n| n.to_string()).unwrap_or_else(|_| k.to_string())
+                    } else {
+                        k.to_string()
+                    };
+                    map.insert(key_str, rval_to_json(v));
+                    Ok(())
+                });
+                return JsonValue::Object(map);
+            }
+            if let Ok(arr) = RArray::try_convert(val) {
+                let mut vec = Vec::with_capacity(arr.len());
+                for item in arr.into_iter() {
+                    vec.push(rval_to_json(item));
+                }
+                return JsonValue::Array(vec);
+            }
+            JsonValue::String(val.to_string())
+        }
+
+        pub fn json_to_rval(ruby: &Ruby, val: &JsonValue) -> Result<Value, Error> {
+            match val {
+                JsonValue::Null => Ok(ruby.qnil().as_value()),
+                JsonValue::Bool(b) => Ok(ruby.into_value(*b)),
+                JsonValue::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        Ok(ruby.into_value(i))
+                    } else if let Some(f) = n.as_f64() {
+                        Ok(ruby.into_value(f))
+                    } else {
+                        Ok(ruby.into_value(n.to_string()))
+                    }
+                }
+                JsonValue::String(s) => Ok(ruby.into_value(s.as_str())),
+                JsonValue::Array(arr) => {
+                    let rarr = ruby.ary_new_capa(arr.len());
+                    for item in arr {
+                        rarr.push(json_to_rval(ruby, item)?)?;
+                    }
+                    Ok(rarr.as_value())
+                }
+                JsonValue::Object(map) => {
+                    let rhash = ruby.hash_new();
+                    for (k, v) in map {
+                        let rkey = ruby.into_value(k.as_str());
+                        let rval = json_to_rval(ruby, v)?;
+                        rhash.aset(rkey, rval)?;
+                    }
+                    Ok(rhash.as_value())
+                }
+            }
+        }
+      RUST
+    end
+
+    def self.data_processor_rs_content
+      <<~RUST
+        use crate::dynamic_hash::{json_to_rval, rval_to_json};
+        use crate::gvl::call_without_gvl;
+        use magnus::{value::ReprValue, Error, RArray, RHash, Ruby, Value};
+        use rayon::prelude::*;
+        use serde_json::{json, Value as JsonValue};
+
+        pub fn transform_record(ruby: &Ruby, record: RHash, config: RHash) -> Result<Value, Error> {
+            let mut raw_record = rval_to_json(record.as_value());
+            let raw_config = rval_to_json(config.as_value());
+
+            let field = raw_config.get("compute_field").and_then(|v| v.as_str()).unwrap_or("value").to_string();
+            let mult = raw_config.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(1.0);
+
+            if let JsonValue::Object(ref mut map) = raw_record {
+                let current_val = map.get(&field).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                map.insert(format!("{}_computed", field), json!(current_val * mult));
+                map.insert("processed_by".to_string(), json!("rust_magnus"));
+            }
+
+            json_to_rval(ruby, &raw_record)
+        }
+
+        pub fn process_batch(ruby: &Ruby, records: RArray, config: RHash) -> Result<Value, Error> {
+            let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
+            let raw_config = rval_to_json(config.as_value());
+
+            let compute_field = raw_config
+                .get("compute_field")
+                .and_then(|v| v.as_str())
+                .unwrap_or("value")
+                .to_string();
+
+            let multiplier = raw_config
+                .get("multiplier")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
+
+            let offset = raw_config
+                .get("offset")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+
+            let processed_records = call_without_gvl(move || {
+                raw_records
+                    .into_par_iter()
+                    .map(|mut rec| {
+                        if let JsonValue::Object(ref mut map) = rec {
+                            let current_val = map
+                                .get(&compute_field)
+                                .and_then(|v| {
+                                    v.as_f64().or_else(|| {
+                                        v.as_str().and_then(|s| s.parse::<f64>().ok())
+                                    })
+                                })
+                                .unwrap_or(0.0);
+
+                            let computed = (current_val * multiplier) + offset;
+                            map.insert(format!("{}_computed", compute_field), json!(computed));
+                            map.insert("processed_by".to_string(), json!("rust_rayon_parallel"));
+                            map.insert("gvl_released".to_string(), json!(true));
+                        }
+                        rec
+                    })
+                    .collect::<Vec<JsonValue>>()
+            });
+
+            let result_json = JsonValue::Array(processed_records);
+            json_to_rval(ruby, &result_json)
+        }
+
+        pub fn aggregate_metrics(ruby: &Ruby, records: RArray, metric_field: String) -> Result<Value, Error> {
+            let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
+            let target_field = metric_field.clone();
+
+            let (count, sum, min, max) = call_without_gvl(move || {
+                let values: Vec<f64> = raw_records
+                    .into_par_iter()
+                    .filter_map(|rec| {
+                        if let JsonValue::Object(map) = rec {
+                            map.get(&target_field).and_then(|v| {
+                                v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                if values.is_empty() {
+                    (0, 0.0, 0.0, 0.0)
+                } else {
+                    let count = values.len();
+                    let sum: f64 = values.par_iter().sum();
+                    let min = values.par_iter().copied().reduce(|| f64::INFINITY, f64::min);
+                    let max = values.par_iter().copied().reduce(|| f64::NEG_INFINITY, f64::max);
+                    (count, sum, min, max)
+                }
+            });
+
+            let avg = if count > 0 { sum / count as f64 } else { 0.0 };
+
+            let summary = json!({
+                "field": metric_field,
+                "count": count,
+                "sum": sum,
+                "avg": avg,
+                "min": min,
+                "max": max,
+                "parallel_engine": "rayon"
+            });
+
+            json_to_rval(ruby, &summary)
+        }
+      RUST
+    end
+
+    def self.rust_backed_rb_content
+      <<~RUBY
+        # frozen_string_literal: true
+
+        module RustBacked
+          extend ActiveSupport::Concern
+
+          included do
+            # ActiveSupport concern for models integrating with Magnus Rust extension
+          end
+
+          def process_with_rust
+            RustBackend.transform_record(attributes, { "multiplier" => 1.0 })
+          end
+
+          class_methods do
+            # Batch process dynamic records across CPU cores with Rayon and GVL released
+            def rust_batch_process(scope_or_hashes, config = {})
+              raw = if scope_or_hashes.respond_to?(:map)
+                scope_or_hashes.map { |r| r.respond_to?(:attributes) ? r.attributes : r }
+              else
+                scope_or_hashes
+              end
+              RustBackend.process_batch(raw, config.stringify_keys)
+            end
+
+            # High speed parallel statistical aggregation across CPU cores (GVL released)
+            def rust_aggregate(scope_or_hashes, field)
+              raw = if scope_or_hashes.respond_to?(:map)
+                scope_or_hashes.map { |r| r.respond_to?(:attributes) ? r.attributes : r }
+              else
+                scope_or_hashes
+              end
+              RustBackend.aggregate_metrics(raw, field.to_s)
+            end
+          end
+        end
+      RUBY
+    end
+
+    def self.initializer_content
+      <<~RUBY
+        # frozen_string_literal: true
+
+        require "rust_backend"
+
+        Rails.logger.info "[RustBackend] Magnus native Rust backend loaded successfully."
+      RUBY
+    end
+
+    def self.loader_content
+      <<~RUBY
+        # frozen_string_literal: true
+
+        module RustBackend
+          begin
+            require_relative "rust_backend/rust_backend"
+          rescue LoadError
+            require_relative "../ext/rust_backend/rust_backend"
+          end
+        end
+      RUBY
+    end
+
+    def self.rake_task_content
+      <<~RUBY
+        # frozen_string_literal: true
+
+        def rust_build_env
+          cargo_path = File.expand_path("~/.cargo/bin")
+          env = {
+            "LIBCLANG_PATH" => ENV["LIBCLANG_PATH"] || File.expand_path("~/.local/lib"),
+            "BINDGEN_EXTRA_CLANG_ARGS" => ENV["BINDGEN_EXTRA_CLANG_ARGS"] || "-I\#{File.expand_path('~/.local/lib/clang/23/include')}"
+          }
+          env["PATH"] = "\#{cargo_path}:\#{ENV['PATH']}" unless ENV["PATH"].include?(cargo_path)
+          env
+        end
+
+        namespace :rust do
+          desc "Build the Magnus Rust backend extension"
+          task :build do
+            puts "[RustBackend] Compiling Rust crate..."
+            crate_dir = Rails.root.join("ext/rust_backend")
+            target_dir = Rails.root.join("lib/rust_backend")
+            FileUtils.mkdir_p(target_dir)
+
+            system(rust_build_env, "cargo build --release", chdir: crate_dir.to_s, exception: true)
+
+            source_so = crate_dir.join("target/release/librust_backend.so")
+            dest_so = target_dir.join("rust_backend.so")
+
+            FileUtils.cp(source_so, dest_so)
+            puts "[RustBackend] Built and copied extension to \#{dest_so}"
+          end
+
+          desc "Run native Rust tests in ext/rust_backend"
+          task :test do
+            crate_dir = Rails.root.join("ext/rust_backend")
+            system(rust_build_env, "cargo test", chdir: crate_dir.to_s, exception: true)
+          end
+
+          desc "Clean compiled Rust artifacts"
+          task :clean do
+            crate_dir = Rails.root.join("ext/rust_backend")
+            system(rust_build_env, "cargo clean", chdir: crate_dir.to_s)
+            FileUtils.rm_f(Rails.root.join("lib/rust_backend/rust_backend.so"))
+            puts "[RustBackend] Cleaned Rust build artifacts."
+          end
+        end
+
+        task test: "rust:build"
+      RUBY
     end
   end
 
@@ -108,38 +647,52 @@ module Railst
 
     def run
       case @command
-      when "run", "server", "s"
+      when "s", "server", "run"
         run_server
-      when "build"
-        run_build
-      when "test"
-        run_test
-      when "ci"
-        run_ci
-      when "generate", "g"
-        run_generate
-      when "console", "c"
+      when "c", "console"
         run_console
-      when "setup"
-        run_setup
+      when "g", "generate"
+        run_generate
+      when "d", "destroy"
+        run_destroy
+      when "new"
+        run_new
+      when "t", "test"
+        run_test
+      when "test:rust", "t:rust"
+        run_rust_test
+      when "test:all", "t:all"
+        run_all_tests
+      when "r", "runner"
+        run_runner
+      when "routes"
+        run_routes
       when "db"
         run_db
-      when "clean"
+      when /\Adb:/
+        run_db_task
+      when "build", "rust:build"
+        run_build
+      when "clean", "rust:clean"
         run_clean
+      when "doctor", "check"
+        run_doctor
+      when "bench", "benchmark"
+        run_benchmark
+      when "stats"
+        run_stats
+      when "ci"
+        run_ci
+      when "setup"
+        run_setup
       when "install"
         run_install_cli
+      when "version", "--version", "-v"
+        show_version
       when "help", "--help", "-h"
         show_help
-      when "version", "--version", "-v"
-        puts "Railst Framework CLI v0.1.0 (Rails 8 + Magnus 0.9)"
       else
-        if project_root && File.exist?(project_root.join("bin/rails"))
-          system_in_root("bin/rails", @command, *@args)
-        else
-          puts "#{Terminal.badge("ERROR", bg: :red, fg: :white)} Unknown command: #{@command}"
-          show_help
-          exit 1
-        end
+        run_passthrough(@command)
       end
     end
 
@@ -160,7 +713,7 @@ module Railst
     def require_project_root!
       unless project_root
         puts ""
-        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} You must run this command inside a Rust-on-Ruby project directory."
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} You must run this command inside a Rust on Rails project directory."
         puts ""
         exit 1
       end
@@ -172,39 +725,53 @@ module Railst
       exit_code = 0
 
       Dir.chdir(project_root) do
-        Open3.popen3(*cmd) do |stdin, stdout, stderr, wait_thr|
-          child_pid = wait_thr.pid
-          sig_handler = proc do
-            Process.kill("INT", child_pid) rescue nil
-            wait_thr.join(5) rescue nil
-            exit(130)
-          end
-          trap("INT", &sig_handler)
-          trap("TERM", &sig_handler)
-
-          err_t = Thread.new do
-            stderr.each_line do |l|
-              $stderr.puts l unless l.include?("VIPS-WARNING")
-            end
-          end
-
-          out_t = Thread.new do
-            stdout.each_line do |l|
-              $stdout.puts l
-            end
-          end
-
-          status = wait_thr.value
-          err_t.join
-          out_t.join
-          success = status.success?
-          exit_code = status.exitstatus || (success ? 0 : 1)
-        end
+        success = Kernel.system(Environment.toolchains_env, *cmd)
+        exit_code = $?.exitstatus || (success ? 0 : 1)
       end
 
       exit(exit_code) if exit_on_fail && !success
       success
     end
+
+    def exec_in_root(*cmd)
+      require_project_root!
+      Dir.chdir(project_root) do
+        Kernel.exec(Environment.toolchains_env, *cmd)
+      end
+    end
+
+    def rust_backend_stale?
+      return false unless project_root
+
+      so_path = project_root.join("lib/rust_backend/rust_backend.so")
+      return true unless so_path.exist?
+
+      so_mtime = so_path.mtime
+      src_pattern = project_root.join("ext/rust_backend/**/*.{rs,toml,rb}").to_s
+      Dir[src_pattern].any? do |f|
+        next false if f.include?("/target/")
+        File.mtime(f) > so_mtime
+      end
+    end
+
+    def ensure_rust_built!
+      require_project_root!
+      return unless rust_backend_stale?
+
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Rust extension is missing or modified. Recompiling..."
+      puts ""
+
+      success = system_in_root("bin/rake", "rust:build", exit_on_fail: false)
+      unless success
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Rust compilation failed."
+        puts ""
+        exit 1
+      end
+    end
+
+    # --- Commands ---
 
     def parse_server_options(args)
       options = {
@@ -212,7 +779,6 @@ module Railst
         port: 3000,
         environment: ENV.fetch("RAILS_ENV", "development"),
         find_port: false,
-        verbose: false,
         passthrough: []
       }
 
@@ -223,9 +789,7 @@ module Railst
         when "-p", "--port"
           i += 1
           options[:port] = args[i].to_i
-        when /\A-p(\d+)\z/
-          options[:port] = $1.to_i
-        when /\A--port=(\d+)\z/
+        when /\A-p(\d+)\z/, /\A--port=(\d+)\z/
           options[:port] = $1.to_i
         when "-b", "-h", "--binding", "--host"
           i += 1
@@ -239,8 +803,6 @@ module Railst
           options[:environment] = $1
         when "-f", "--find-port"
           options[:find_port] = true
-        when "-v", "--verbose"
-          options[:verbose] = true
         else
           options[:passthrough] << arg
         end
@@ -260,12 +822,13 @@ module Railst
         server.close
       rescue Errno::EADDRINUSE, Errno::EACCES
         return true
-      rescue => _
+      rescue StandardError
+        # ignore other connection errors during check
       end
       false
     end
 
-    def find_available_port(host, starting_port, max_tries = 10)
+    def find_available_port(host, starting_port, max_tries = 20)
       candidate = starting_port
       max_tries.times do
         return candidate unless port_in_use?(host, candidate)
@@ -276,35 +839,19 @@ module Railst
 
     def run_server
       require_project_root!
-
-      # Ensure native extension is built
-      so_path = project_root.join("lib/rust_backend/rust_backend.so")
-      unless File.exist?(so_path)
-        puts ""
-        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Compiled Rust backend not found. Building native extension..."
-        puts ""
-        build_ok = system_in_root("bin/rake", "rust:build", exit_on_fail: false)
-        unless build_ok
-          puts ""
-          puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to compile native Rust backend."
-          puts ""
-          exit 1
-        end
-      end
+      ensure_rust_built!
 
       opts = parse_server_options(@args)
       host = opts[:host]
       port = opts[:port]
       env_name = opts[:environment]
-      verbose = opts[:verbose]
 
-      # Check port availability
       if port_in_use?(host, port)
         if opts[:find_port]
           next_port = find_available_port(host, port + 1)
           if next_port
             puts ""
-            puts "   #{Terminal.badge("WARN", bg: :yellow, fg: :black)} Port #{port} is occupied. Selected port #{next_port} instead."
+            puts "   #{Terminal.badge("WARN", bg: :yellow, fg: :black)} Port #{port} is occupied. Using port #{next_port} instead."
             port = next_port
           else
             print_port_error(host, port)
@@ -317,25 +864,6 @@ module Railst
         end
       end
 
-      execute_server(host, port, env_name, verbose, opts[:passthrough])
-    end
-
-    def print_port_error(host, port, suggested_port = nil)
-      puts ""
-      puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to listen on #{host}:#{port} (reason: Address already in use)."
-      puts ""
-      puts "  #{Terminal.dim("Port")} #{Terminal.bold(port)} #{Terminal.dim("is currently occupied by another process.")}"
-      if suggested_port
-        puts "  #{Terminal.dim("Try specifying a different port:")}"
-        puts "    #{Terminal.bold_yellow("railst run -p #{suggested_port}")}"
-        puts ""
-        puts "  #{Terminal.dim("Or run with automatic port selection:")}"
-        puts "    #{Terminal.bold_yellow("railst run --find-port")}"
-      end
-      puts ""
-    end
-
-    def print_server_banner(host, port, env_name)
       display_host = (host == "0.0.0.0") ? "127.0.0.1" : host
       puts ""
       puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Server running on #{Terminal.bold_cyan("[http://#{display_host}:#{port}]")}."
@@ -345,130 +873,112 @@ module Railst
       puts "  #{Terminal.dim("Environment")} #{Terminal.dim(".........................................")} #{env_name}"
       puts "  #{Terminal.dim("Rust Backend")} #{Terminal.dim(".......................")} #{Terminal.green("Rayon + Magnus 0.9 (active)")}"
       puts ""
+
+      # Full TTY and signal passthrough to Puma/Rails server
+      exec_in_root("bin/rails", "server", "-b", host, "-p", port.to_s, "-e", env_name, *opts[:passthrough])
     end
 
-    def execute_server(host, port, env_name, verbose, passthrough)
-      cmd_env = {
-        "VIPS_WARNING" => "0",
-        "G_MESSAGES_DEBUG" => "none",
-        "PATH" => "#{ENV['HOME']}/.local/share/gem/ruby/3.4.0/bin:#{ENV['HOME']}/.local/bin:#{ENV['HOME']}/.cargo/bin:#{ENV['PATH']}"
-      }
-
-      cmd = [ "bin/rails", "server", "-b", host, "-p", port.to_s, "-e", env_name, *passthrough ]
-      server_ready = false
-      current_request = nil
-      err_lines = []
-      child_pid = nil
-
-      Dir.chdir(project_root) do
-        Open3.popen3(cmd_env, *cmd) do |stdin, stdout, stderr, wait_thr|
-          child_pid = wait_thr.pid
-
-          # Signal trapping for clean shutdown
-          shutdown_proc = proc do
-            if child_pid
-              begin
-                Process.kill("INT", child_pid)
-              rescue Errno::ESRCH
-              end
-              wait_thr.join(5) rescue nil
-            end
-            puts ""
-            puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Server stopped."
-            puts ""
-            exit(0)
-          end
-
-          trap("INT", &shutdown_proc)
-          trap("TERM", &shutdown_proc)
-
-          err_thread = Thread.new do
-            stderr.each_line do |line|
-              next if line.include?("VIPS-WARNING")
-
-              if verbose
-                $stderr.puts line
-              else
-                err_lines << line
-                # Display direct errors or exceptions during request execution
-                if line =~ /error|fatal|exception/i
-                  $stderr.puts "  #{Terminal.red(line.strip)}"
-                end
-              end
-            end
-          end
-
-          out_thread = Thread.new do
-            stdout.each_line do |line|
-              if line.include?("Listening on") || line.include?("Use Ctrl-C to stop")
-                unless server_ready
-                  server_ready = true
-                  print_server_banner(host, port, env_name)
-                end
-                next
-              end
-
-              # Suppress Puma boot noise
-              next if line =~ /^\s*(=>|\*\s*(Puma|Ruby|Min|Max|Environment|PID)|Exiting|- Gracefully)/
-              next if line =~ /Puma starting in single mode/
-              next if line =~ /^(=== puma shutdown|- Goodbye!)/
-              next if line.strip.empty? && !server_ready
-
-              if verbose
-                puts line
-              else
-                # Clean request formatting
-                if line =~ /^Started ([A-Z]+) "([^"]+)"/
-                  current_request = { method: $1, path: $2, time: Time.now }
-                elsif line =~ /^Completed (\d+) ([^ ]+) in ([\d\.]+)ms/
-                  code = $1
-                  status_text = $2
-                  duration = $3
-                  method = current_request ? current_request[:method] : "REQ"
-                  path = current_request ? current_request[:path] : "/"
-                  puts Terminal.format_request_log(method, path, code, status_text, duration)
-                  current_request = nil
-                elsif line =~ /error|fatal|exception/i
-                  puts "  #{Terminal.red(line.strip)}"
-                end
-              end
-            end
-          end
-
-          status = wait_thr.value
-          out_thread.join
-          err_thread.join
-
-          unless server_ready
-            print_boot_failure(err_lines)
-            exit(status.exitstatus || 1)
-          end
-        end
-      end
-    end
-
-    def print_boot_failure(err_lines)
-      error_msg = err_lines.find { |l| l =~ /Error|fatal|Exception/i } || err_lines.first || "Server process terminated unexpectedly."
+    def print_port_error(host, port, suggested_port = nil)
       puts ""
-      puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to start Railst development server."
+      puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to listen on #{host}:#{port} (Address already in use)."
       puts ""
-      puts "  #{Terminal.bold(error_msg.strip)}"
-
-      if error_msg.include?("PendingMigrationError")
+      puts "  #{Terminal.dim("Port")} #{Terminal.bold(port)} #{Terminal.dim("is currently occupied by another process.")}"
+      if suggested_port
+        puts "  #{Terminal.dim("Try specifying a different port:")}"
+        puts "    #{Terminal.bold_yellow("railst s -p #{suggested_port}")}"
         puts ""
-        puts "  #{Terminal.dim("Hint: You have pending database migrations. Run:")}"
-        puts "    #{Terminal.bold_yellow("railst db migrate")}"
+        puts "  #{Terminal.dim("Or run with automatic port selection:")}"
+        puts "    #{Terminal.bold_yellow("railst s --find-port")}"
       end
+      puts ""
+    end
+
+    def run_console
+      require_project_root!
+      ensure_rust_built!
+      exec_in_root("bin/rails", "console", *@args)
+    end
+
+    def run_generate
+      require_project_root!
+      ensure_rust_built!
+      if @args.empty?
+        exec_in_root("bin/rails", "generate", "--help")
+      else
+        system_in_root("bin/rails", "generate", *@args)
+      end
+    end
+
+    def run_destroy
+      require_project_root!
+      system_in_root("bin/rails", "destroy", *@args)
+    end
+
+    def run_runner
+      require_project_root!
+      ensure_rust_built!
+      exec_in_root("bin/rails", "runner", *@args)
+    end
+
+    def run_routes
+      require_project_root!
+      system_in_root("bin/rails", "routes", *@args)
+    end
+
+    def run_db
+      require_project_root!
+      sub = @args.shift || "migrate"
+      system_in_root("bin/rails", "db:#{sub}", *@args)
+    end
+
+    def run_db_task
+      require_project_root!
+      system_in_root("bin/rails", @command, *@args)
+    end
+
+    def run_test
+      require_project_root!
+      if @args.empty?
+        run_all_tests
+      elsif @args.first == "rust"
+        @args.shift
+        run_rust_test
+      elsif @args.first == "all"
+        @args.shift
+        run_all_tests
+      else
+        ensure_rust_built!
+        system_in_root("bin/rails", "test", *@args)
+      end
+    end
+
+    def run_rust_test
+      require_project_root!
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Running native Rust crate unit tests..."
+      puts ""
+      system_in_root("bin/rake", "rust:test")
+    end
+
+    def run_all_tests
+      require_project_root!
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Running native Rust tests..."
+      puts ""
+      rust_ok = system_in_root("bin/rake", "rust:test", exit_on_fail: false)
 
       puts ""
-      puts "  #{Terminal.dim("Run with")} #{Terminal.bold_yellow("--verbose")} #{Terminal.dim("to inspect the complete backtrace.")}"
+      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Running Rails test suite..."
       puts ""
+      rails_ok = system_in_root("bin/rails", "test", exit_on_fail: false)
+
+      exit((rust_ok && rails_ok) ? 0 : 1)
     end
 
     def run_build
       require_project_root!
       puts ""
-      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Compiling Magnus Rust backend extension..."
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Compiling Magnus Rust backend extension..."
       puts ""
       ok = system_in_root("bin/rake", "rust:build", exit_on_fail: false)
       if ok
@@ -483,40 +993,12 @@ module Railst
       end
     end
 
-    def run_test
+    def run_clean
       require_project_root!
-      if @args.empty?
-        puts ""
-        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Running native Rust tests..."
-        puts ""
-        rust_ok = system_in_root("bin/rake", "rust:test", exit_on_fail: false)
-
-        puts ""
-        puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Running Rails test suite..."
-        puts ""
-        rails_ok = system_in_root("bin/rails", "test", exit_on_fail: false)
-
-        exit((rust_ok && rails_ok) ? 0 : 1)
-      else
-        system_in_root("bin/rails", "test", *@args)
-      end
-    end
-
-    def run_ci
-      require_project_root!
-      system_in_root("bin/ci", *@args)
-    end
-
-    def run_generate
-      require_project_root!
-      system_in_root("bin/rails", "generate", *@args)
-    end
-
-    def run_console
-      require_project_root!
-      Dir.chdir(project_root) do
-        exec("bin/rails", "console", *@args)
-      end
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Cleaning Rust build artifacts..."
+      puts ""
+      system_in_root("bin/rake", "rust:clean")
     end
 
     def run_setup
@@ -524,18 +1006,275 @@ module Railst
       system_in_root("bin/setup", *@args)
     end
 
-    def run_db
+    def run_ci
       require_project_root!
-      sub = @args.shift || "migrate"
-      system_in_root("bin/rails", "db:#{sub}", *@args)
+      system_in_root("bin/ci", *@args)
     end
 
-    def run_clean
+    def run_passthrough(cmd)
       require_project_root!
+      exec_in_root("bin/rails", cmd, *@args)
+    end
+
+    def run_new
+      app_name = @args.shift
+      if app_name.nil? || app_name.empty? || app_name.start_with?("-")
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Missing application name."
+        puts ""
+        puts "  Usage:"
+        puts "    #{Terminal.bold_cyan("railst new <app_name> [rails_options]")}"
+        puts ""
+        puts "  Examples:"
+        puts "    #{Terminal.bold_yellow("railst new my_app")}"
+        puts "    #{Terminal.bold_yellow("railst new analytics_service -d postgresql")}"
+        puts ""
+        exit 1
+      end
+
+      target_dir = Pathname.pwd.join(app_name)
+      if target_dir.exist?
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Destination directory '#{app_name}' already exists."
+        puts ""
+        exit 1
+      end
+
       puts ""
-      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Cleaning Rust build artifacts..."
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Creating new Rails application: #{Terminal.bold(app_name)}..."
       puts ""
-      system_in_root("bin/rake", "rust:clean")
+
+      rails_cmd = [ "rails", "new", app_name, *@args ]
+      rails_success = Kernel.system(Environment.toolchains_env, *rails_cmd)
+      unless rails_success
+        puts ""
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to create base Rails application."
+        puts ""
+        exit 1
+      end
+
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :cyan, fg: :black)} Injecting Rust on Rails architecture (Magnus 0.9 + Rayon + GVL)..."
+      puts ""
+
+      Templates.inject_into(target_dir, project_root)
+
+      # Append rb_sys into Gemfile if not present
+      gemfile = target_dir.join("Gemfile")
+      if gemfile.exist?
+        gem_content = gemfile.read
+        unless gem_content.include?("rb_sys")
+          File.open(gemfile, "a") do |f|
+            f.puts "\n# Rust C-extension build tooling\ngroup :development, :test do\n  gem \"rb_sys\", \"~> 0.9\"\nend\n"
+          end
+        end
+      end
+
+      # Copy railst CLI executable into bin/railst
+      cli_source = File.expand_path(__FILE__)
+      dest_cli = target_dir.join("bin/railst")
+      FileUtils.cp(cli_source, dest_cli)
+      FileUtils.chmod(0755, dest_cli)
+
+      puts ""
+      puts "   #{Terminal.badge("INFO", bg: :green, fg: :black)} Compiling native Rust backend in #{app_name}..."
+      puts ""
+
+      Dir.chdir(target_dir) do
+        Kernel.system(Environment.toolchains_env, "bundle", "install")
+        Kernel.system(Environment.toolchains_env, "bin/rake", "rust:build")
+      end
+
+      puts ""
+      puts "   #{Terminal.badge("SUCCESS", bg: :green, fg: :black)} #{Terminal.bold("Rust on Rails application created successfully!")}"
+      puts ""
+      puts "  #{Terminal.dim("Get started:")}"
+      puts "    #{Terminal.bold_yellow("cd #{app_name}")}"
+      puts "    #{Terminal.bold_yellow("railst s")}"
+      puts ""
+    end
+
+    def run_doctor
+      puts ""
+      puts "   #{Terminal.bold_cyan("=== Rust on Rails System Diagnostics ===")}"
+      puts ""
+
+      # 1. Ruby & C Headers
+      ruby_ver = "#{RUBY_VERSION} (#{RUBY_PLATFORM})"
+      hdr_dir = RbConfig::CONFIG["rubyhdrdir"]
+      hdr_file = hdr_dir ? File.join(hdr_dir, "ruby.h") : nil
+      hdr_ok = hdr_file && File.exist?(hdr_file)
+
+      if hdr_ok
+        puts "  #{Terminal.green("✓")} #{Terminal.bold("Ruby")}: #{ruby_ver}"
+        puts "  #{Terminal.green("✓")} #{Terminal.bold("Ruby C-Headers")}: #{hdr_file}"
+      else
+        puts "  #{Terminal.yellow("!")} #{Terminal.bold("Ruby")}: #{ruby_ver}"
+        puts "  #{Terminal.red("✗")} #{Terminal.bold("Ruby C-Headers")}: Not found in #{hdr_dir || 'unknown'}"
+      end
+
+      # 2. Rust & Cargo
+      env = Environment.toolchains_env
+      cargo_ver = `cargo --version 2>/dev/null`.strip
+      rustc_ver = `rustc --version 2>/dev/null`.strip
+
+      if !cargo_ver.empty? && !rustc_ver.empty?
+        puts "  #{Terminal.green("✓")} #{Terminal.bold("Rust Toolchain")}: #{rustc_ver}, #{cargo_ver}"
+      else
+        puts "  #{Terminal.red("✗")} #{Terminal.bold("Rust Toolchain")}: cargo/rustc not found in PATH."
+        puts "    #{Terminal.dim("Hint: Install Rust via: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")}"
+      end
+
+      # 3. LLVM / Clang
+      libclang = env["LIBCLANG_PATH"]
+      libclang_so = libclang ? Dir[File.join(libclang, "libclang.so*")].first : nil
+
+      if libclang_so
+        puts "  #{Terminal.green("✓")} #{Terminal.bold("LLVM / Clang")}: #{libclang_so}"
+      else
+        puts "  #{Terminal.yellow("!")} #{Terminal.bold("LLVM / Clang")}: libclang.so not detected in standard paths."
+        puts "    #{Terminal.dim("Hint: Install libclang-dev (e.g. sudo apt install libclang-dev)")}"
+      end
+
+      # 4. Multi-Core Hardware Detection (Rayon)
+      cores = Etc.nprocessors
+      puts "  #{Terminal.green("✓")} #{Terminal.bold("Multi-Core Hardware")}: #{cores} physical/logical CPU cores (Rayon ready)"
+
+      # 5. Project-Specific Status (if inside project)
+      if project_root
+        puts ""
+        puts "  #{Terminal.bold_cyan("Project Status:")} #{project_root}"
+
+        so_path = project_root.join("lib/rust_backend/rust_backend.so")
+        if so_path.exist?
+          stale = rust_backend_stale?
+          size_kb = (so_path.size / 1024.0).round(1)
+          if stale
+            puts "  #{Terminal.yellow("!")} #{Terminal.bold("Rust Backend")}: Compiled (#{size_kb} KB) but #{Terminal.yellow("source files are newer")}."
+            puts "    #{Terminal.dim("Hint: Run 'railst build' to recompile.")}"
+          else
+            puts "  #{Terminal.green("✓")} #{Terminal.bold("Rust Backend")}: Compiled and up-to-date (#{size_kb} KB)"
+          end
+        else
+          puts "  #{Terminal.red("✗")} #{Terminal.bold("Rust Backend")}: Not yet compiled."
+          puts "    #{Terminal.dim("Hint: Run 'railst build' to compile.")}"
+        end
+
+        schema_file = project_root.join("db/schema.rb")
+        if schema_file.exist?
+          puts "  #{Terminal.green("✓")} #{Terminal.bold("Database Schema")}: Present (#{schema_file})"
+        end
+      else
+        puts ""
+        puts "  #{Terminal.dim("(Run inside a Rust on Rails project directory for local extension diagnostics)")}"
+      end
+
+      puts ""
+      puts "  #{Terminal.dim("System ready for high-performance Rust on Rails computing.")}"
+      puts ""
+    end
+
+    def run_benchmark
+      require_project_root!
+      ensure_rust_built!
+
+      count = (@args.first || 25_000).to_i.clamp(1_000, 200_000)
+
+      puts ""
+      puts "   #{Terminal.badge("BENCH", bg: :magenta, fg: :white)} #{Terminal.bold("Running Rust on Rails In-Process Performance Benchmark")}"
+      puts "  Dataset: #{Terminal.bold(count.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse)} in-memory record hashes"
+      puts ""
+
+      runner_code = <<~RUBY
+        count = #{count}
+        data = Array.new(count) { |i| { "id" => i, "value" => (i * 1.5).round(2) } }
+        cfg = { "multiplier" => 1.25, "compute_field" => "value" }
+
+        # 1. Pure Ruby Sequential Batch
+        t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        ruby_res = data.map do |d|
+          d.merge("value_computed" => d["value"] * 1.25, "processed_by" => "ruby")
+        end
+        t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        ruby_batch_ms = ((t1 - t0) * 1000.0).round(2)
+
+        # 2. Rust Multi-Core Rayon Batch
+        t2 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        rust_res = RustBackend.process_batch(data, cfg)
+        t3 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        rust_batch_ms = ((t3 - t2) * 1000.0).round(2)
+
+        # 3. Rust Parallel Reduction Metrics
+        t4 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        metrics = RustBackend.aggregate_metrics(data, "value")
+        t5 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        rust_metric_ms = ((t5 - t4) * 1000.0).round(2)
+
+        cores = Etc.nprocessors
+        ruby_thru = (count / [ruby_batch_ms / 1000.0, 0.001].max).round
+        rust_thru = (count / [rust_batch_ms / 1000.0, 0.001].max).round
+
+        puts "RESULTS:"
+        puts "\#{ruby_batch_ms}|\#{rust_batch_ms}|\#{rust_metric_ms}|\#{ruby_thru}|\#{rust_thru}|\#{cores}"
+      RUBY
+
+      out = nil
+      Dir.chdir(project_root) do
+        out = `bin/rails runner '#{runner_code}' 2>/dev/null`
+      end
+
+      if out && out.include?("RESULTS:")
+        line = out.lines.find { |l| l.include?("|") }&.strip
+        if line
+          ruby_ms, rust_ms, metric_ms, ruby_thru, rust_thru, cores = line.split("|")
+
+          puts "  +---------------------------+----------------+----------------+"
+          puts "  | Operation                 | Pure Ruby      | Rust (Rayon)   |"
+          puts "  +---------------------------+----------------+----------------+"
+          puts "  | Batch Compute Latency     | #{ruby_ms.rjust(11)} ms | #{Terminal.bold_green(rust_ms.rjust(11) + ' ms')} |"
+          puts "  | Parallel Metrics (5 ops)  |            N/A | #{Terminal.bold_cyan(metric_ms.rjust(11) + ' ms')} |"
+          puts "  | Processing Throughput     | #{ruby_thru.rjust(9)} rec/s | #{Terminal.bold_green(rust_thru.rjust(9) + ' rec/s')} |"
+          puts "  +---------------------------+----------------+----------------+"
+          puts ""
+          puts "  #{Terminal.dim("Hardware Acceleration:")} #{Terminal.bold(cores)} CPU cores #{Terminal.dim("(Rayon parallel pool, Ruby GVL released)")}"
+          puts ""
+        end
+      else
+        puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to execute benchmark runner."
+      end
+    end
+
+    def run_stats
+      require_project_root!
+      system_in_root("bin/rails", "stats")
+
+      puts ""
+      puts "  #{Terminal.bold_cyan("Rust Native Code Statistics:")}"
+      crate_dir = project_root.join("ext/rust_backend")
+      if crate_dir.exist?
+        rs_files = Dir[crate_dir.join("src/**/*.rs")]
+        total_lines = 0
+        test_count = 0
+
+        puts "  +-------------------------------+-------+-------+"
+        puts "  | Rust Module                   | Lines | Tests |"
+        puts "  +-------------------------------+-------+-------+"
+
+        rs_files.sort.each do |f|
+          name = Pathname.new(f).relative_path_from(crate_dir).to_s
+          content = File.read(f)
+          lines = content.lines.count
+          tests = content.scan(/#\[test\]/).count
+          total_lines += lines
+          test_count += tests
+          puts "  | #{name.ljust(29)} | #{lines.to_s.rjust(5)} | #{tests.to_s.rjust(5)} |"
+        end
+
+        puts "  +-------------------------------+-------+-------+"
+        puts "  | #{Terminal.bold('Total Rust Backend')}           | #{Terminal.bold(total_lines.to_s.rjust(5))} | #{Terminal.bold(test_count.to_s.rjust(5))} |"
+        puts "  +-------------------------------+-------+-------+"
+        puts ""
+      end
     end
 
     def run_install_cli
@@ -559,39 +1298,62 @@ module Railst
       puts ""
     end
 
+    def show_version
+      puts "Rust on Rails CLI v#{VERSION} (Rails 8 + Magnus 0.9 + Rayon)"
+      if project_root
+        rails_ver = `bin/rails --version 2>/dev/null`.strip
+        rust_ver = `rustc --version 2>/dev/null`.strip
+        puts "  Rails: #{rails_ver}" unless rails_ver.empty?
+        puts "  Rust:  #{rust_ver}" unless rust_ver.empty?
+      end
+    end
+
     def show_help
       puts <<~HELP
 
         Usage: railst <command> [options]
 
-        Available Commands:
-          railst run                 Start the Rails development server (auto-builds Rust)
-          railst build               Compile the Magnus Rust backend extension
-          railst test [path]         Run Rust unit tests and Rails test suite
-          railst ci                  Run the full Continuous Integration verification suite
-          railst g <generator>       Run Rails/Rust generators (e.g. railst g rust:resource ...)
-          railst c                   Open the interactive Rails console
-          railst db [action]         Run database commands (migrate, rollback, prepare, seed)
-          railst setup               Install dependencies, setup DB, and build Rust backend
-          railst clean               Clean Rust build artifacts
-          railst install             Install railst command globally into user bin directory
-          railst help                Show this help message
+        Core Rails Commands (with Rust Acceleration):
+          railst s, server           Start the Rails server (auto-builds Rust backend)
+          railst c, console          Start the interactive Rails console
+          railst g, generate         Run Rails & Rust code generators
+          railst d, destroy          Remove generated code
+          railst t, test [path]      Run test suite (Rust crate tests + Rails tests)
+          railst r, runner <code>    Run Ruby code in application context
+          railst new <app_name>      Create a new Rust on Rails application
 
-        Options for 'railst run':
+        Database Commands:
+          railst db [action]         Run database task (migrate, rollback, prepare, seed, reset)
+          railst db:migrate          Run database migrations (supports all db:* tasks)
+
+        Rust on Rails Tooling:
+          railst build               Compile the native Rust crate (cargo build --release)
+          railst clean               Clean Rust build artifacts (cargo clean)
+          railst doctor              Diagnose Ruby, Rust, LLVM/Clang, and Magnus environment
+          railst bench [count]       Run CLI multi-core vs Ruby benchmark (default: 25,000)
+          railst ci                  Run the full Continuous Integration verification suite
+          railst routes              List all application routes
+          railst stats               Report code statistics (Ruby + Rust lines of code)
+          railst install             Install railst globally into user's PATH
+          railst version, -v         Display framework version
+          railst help, -h            Show this help message
+
+        Options for 'railst server':
           -p, --port <port>          Specify server port (default: 3000)
           -b, --binding <host>       Specify IP binding (default: 127.0.0.1)
           -e, --environment <env>    Specify environment (default: development)
           -f, --find-port            Auto-select next available port if default is occupied
-          -v, --verbose              Show detailed server and database logs
 
         Examples:
-          railst run
-          railst run -p 3001
-          railst run --find-port
-          railst g rust:resource SensorData device_id:string value:float
-          railst db migrate
-          railst test
-          railst ci
+          railst s
+          railst s -p 3001 --find-port
+          railst g rust:resource Transaction amount:decimal status:string
+          railst c
+          railst t
+          railst t:rust
+          railst doctor
+          railst bench 50000
+          railst db:migrate
 
       HELP
     end

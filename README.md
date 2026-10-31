@@ -1,4 +1,4 @@
-# Rust-on-Ruby Framework
+# Rust on Rails Framework
 
 A high-performance data processing framework combining the rapid development productivity of **Ruby on Rails 8** with the raw multi-core computing power of **pure Rust** via **Magnus 0.9**, **Rayon**, and **Ruby GVL (Global VM Lock) Release**.
 
@@ -74,20 +74,19 @@ bin/railst install
 
 This copies the `railst` executable to your user gem binary directory (`$(ruby -e 'puts Gem.user_dir')/bin` and `~/.local/bin`) registered in `$PATH`.
 
-### Running the Server (`railst run`)
+### Running the Server (`railst s` / `railst server`)
 
-The `railst run` command automatically verifies and builds the native Rust extension if not yet compiled, filters internal Puma noise, and renders a clean console dashboard:
+The `railst s` command automatically detects missing or modified Rust code (`*.rs`, `Cargo.toml`), recompiles the native extension if stale, verifies port availability, and launches the Puma server with direct TTY and full debugging support:
 
 ```bash
-railst run                       # Start server on default port 3000
-railst run -p 3001               # Start server on a specific port (e.g. 3001)
-railst run --find-port           # Automatically select the next open port if occupied
-railst run -b 0.0.0.0            # Bind server to all network interfaces
-railst run -e production         # Run in a specific environment
-railst run --verbose             # Display full raw Rails, SQL query, and Puma logs
+railst s                         # Start server on default port 3000
+railst s -p 3001                 # Start server on a specific port (e.g. 3001)
+railst s --find-port             # Automatically select the next open port if occupied (or -f)
+railst s -b 0.0.0.0              # Bind server to all network interfaces
+railst s -e production           # Run in a specific environment
 ```
 
-#### Normal Server Output (Laravel-Style)
+#### Server Output Banner
 ```text
    INFO  Server running on [http://127.0.0.1:3001].
 
@@ -95,44 +94,49 @@ railst run --verbose             # Display full raw Rails, SQL query, and Puma l
 
   Environment ......................................... development
   Rust Backend ....................... Rayon + Magnus 0.9 (active)
-
-  2026-10-31 16:10:00  GET    / ............................................. 200 OK ~ 4ms
-  2026-10-31 16:10:05  POST   /benchmark .................................... 200 OK ~ 11ms
-
-   INFO  Server stopped.
 ```
 
 #### Port Collision Handling (Clean Error Reporting)
-If port 3000 is occupied by another process (e.g., Docker proxy):
+If port 3000 is occupied by another process:
 ```text
-   ERROR  Failed to listen on 127.0.0.1:3000 (reason: Address already in use).
+   ERROR  Failed to listen on 127.0.0.1:3000 (Address already in use).
 
   Port 3000 is currently occupied by another process.
   Try specifying a different port:
-    railst run -p 3001
+    railst s -p 3001
 
   Or run with automatic port selection:
-    railst run --find-port
+    railst s --find-port
 ```
 
 ---
 
-### Complete `railst` Command Reference
+### Complete `railst` Command Reference (Rails 8 Ecosystem Parity)
 
-| Command | Description |
-| :--- | :--- |
-| `railst run [options]` | Start the Rails development server with Rust auto-compilation and clean output |
-| `railst build` | Compile the native `ext/rust_backend` crate via Cargo into `lib/rust_backend/` |
-| `railst test [path]` | Run native Rust unit tests (`cargo test`) and the Rails test suite |
-| `railst ci` | Run the complete 7-step Continuous Integration verification pipeline |
-| `railst g rust:resource <Name> [field:type]` | Scaffold unified resource: migration, `RustBacked` model, controller, and routes |
-| `railst g rust:service <Name>` | Generate a dedicated Ruby service wired to native Rust functions |
-| `railst c` | Open the interactive Rails console with the `RustBackend` namespace loaded |
-| `railst db [action]` | Execute database operations (`migrate`, `rollback`, `prepare`, `seed`) |
-| `railst setup` | Install gem dependencies, prepare database, and compile Rust extension |
-| `railst clean` | Clean Cargo build target artifacts in the Rust crate |
-| `railst install` | Install the `railst` binary globally into the user binary directory |
-| `railst help` | Display command-line usage and available options |
+| Command | Shortcut | Description |
+| :--- | :--- | :--- |
+| `railst server` | `railst s` | Start Puma server with Rust auto-build & port collision resolution |
+| `railst console` | `railst c` | Open interactive Rails console with full TTY and Rust extension |
+| `railst generate` | `railst g` | Run Rails & Rust generators (`rust:resource`, `rust:service`, `model`, etc.) |
+| `railst destroy` | `railst d` | Revert changes made by generators |
+| `railst test [path]` | `railst t` | Run native Rust tests (`cargo test`) and the Rails test suite |
+| `railst test:rust` | `railst t:rust` | Run only native Rust crate unit tests |
+| `railst test:all` | `railst t:all` | Run complete multi-tier test suites |
+| `railst runner <code>`| `railst r` | Run Ruby code or scripts within the application context |
+| `railst new <app_name>`| - | Scaffold a brand new Rust on Rails application from scratch |
+| `railst db [action]` | - | Run database operations (`migrate`, `rollback`, `prepare`, `seed`, `reset`) |
+| `railst db:migrate` | - | Execute pending migrations (supports all `db:*` tasks) |
+| `railst routes` | - | Display application route definitions |
+| `railst stats` | - | Report unified code statistics (Ruby LOC + Rust module LOC & tests) |
+| `railst doctor` | `railst check`| Complete environment diagnostics (Ruby, Rust, LLVM/Clang, Magnus, Rayon) |
+| `railst bench [count]` | - | Run in-terminal performance benchmark (Ruby vs Rust Rayon parallel pool) |
+| `railst build` | - | Compile native `ext/rust_backend` crate via Cargo into `lib/rust_backend/` |
+| `railst clean` | - | Clean Rust build target artifacts |
+| `railst setup` | - | Install dependencies, prepare database, and compile Rust extension |
+| `railst ci` | - | Run the complete 7-step Continuous Integration verification pipeline |
+| `railst install` | - | Install `railst` globally into user's PATH (`~/.local/bin`) |
+| `railst version` | `railst -v` | Display Rust on Rails CLI, Rails, and Rust versions |
+| `railst help` | `railst -h` | Display command-line usage and available options |
 
 ---
 
