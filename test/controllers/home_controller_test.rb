@@ -6,7 +6,7 @@ class HomeControllerTest < ActionDispatch::IntegrationTest
   test "should get root landing page" do
     get root_url
     assert_response :success
-    assert_select "h1.hero-title", /The Velocity of Rails/
+    assert_select "h1.hero-headline", /The Velocity of Rails/
     assert_select "span.brand-name", "Railst"
   end
 
