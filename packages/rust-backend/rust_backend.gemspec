@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = "rust_backend"
-  spec.version       = "0.2.1"
+  spec.version       = "0.2.2"
   spec.authors       = [ "Valirc-cpu" ]
   spec.email         = [ "taltagemilang@gmail.com" ]
   spec.summary       = "Native in-process Rust data processing extension for Rails 8 with Magnus and Rayon"

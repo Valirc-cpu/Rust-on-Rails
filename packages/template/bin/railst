@@ -8,7 +8,7 @@ require "rbconfig"
 require "etc"
 
 module Railst
-  VERSION = "0.2.1"
+  VERSION = "0.2.2"
 
   module Terminal
     def self.color?
@@ -226,7 +226,7 @@ module Railst
         crate-type = ["cdylib"]
 
         [dependencies]
-        magnus = "0.9"
+        magnus = { version = "0.9", features = ["rb-sys"] }
         rb-sys = "0.9"
         rayon = "1.10"
         serde = { version = "1.0", features = ["derive"] }
@@ -247,30 +247,53 @@ module Railst
 
     def self.lib_rs_content
       <<~RUST
-        use magnus::{Error, Ruby};
-
-        pub mod dynamic_hash;
         pub mod data_processor;
+        pub mod dynamic_hash;
         pub mod gvl;
+
+        use magnus::{function, prelude::*, Error, RHash, Ruby};
+
+        fn hello(name: String) -> String {
+            format!("Hello {} from Rust (Magnus)!", name)
+        }
+
+        fn calculate(ruby: &Ruby, a: f64, b: f64, op: String) -> Result<f64, Error> {
+            match op.as_str() {
+                "add" | "+" => Ok(a + b),
+                "sub" | "-" => Ok(a - b),
+                "mul" | "*" => Ok(a * b),
+                "div" | "/" => {
+                    if b == 0.0 {
+                        Err(Error::new(ruby.exception_zero_div_error(), "division by zero in Rust backend"))
+                    } else {
+                        Ok(a / b)
+                    }
+                }
+                _ => Err(Error::new(ruby.exception_arg_error(), format!("unknown operator: {}", op))),
+            }
+        }
+
+        fn process_record(ruby: &Ruby, attributes: RHash) -> Result<RHash, Error> {
+            let result = ruby.hash_new();
+            attributes.foreach(|k: magnus::Value, v: magnus::Value| {
+                result.aset(k, v)?;
+                Ok(magnus::r_hash::ForEach::Continue)
+            })?;
+            result.aset("rust_processed", true)?;
+            result.aset("rust_engine", "magnus-0.9")?;
+            Ok(result)
+        }
 
         #[magnus::init]
         fn init(ruby: &Ruby) -> Result<(), Error> {
             let module = ruby.define_module("RustBackend")?;
+            module.define_singleton_method("hello", function!(hello, 1))?;
+            module.define_singleton_method("calculate", function!(calculate, 3))?;
+            module.define_singleton_method("process_record", function!(process_record, 1))?;
 
-            module.define_singleton_method(
-                "process_batch",
-                magnus::function!(data_processor::process_batch, 2),
-            )?;
-
-            module.define_singleton_method(
-                "aggregate_metrics",
-                magnus::function!(data_processor::aggregate_metrics, 2),
-            )?;
-
-            module.define_singleton_method(
-                "transform_record",
-                magnus::function!(data_processor::transform_record, 2),
-            )?;
+            // High performance data processing with dynamic Hashes & Rayon (GVL released)
+            module.define_singleton_method("process_batch", function!(data_processor::process_batch, 2))?;
+            module.define_singleton_method("aggregate_metrics", function!(data_processor::aggregate_metrics, 2))?;
 
             Ok(())
         }
@@ -279,123 +302,130 @@ module Railst
 
     def self.gvl_rs_content
       <<~RUST
-        use magnus::rb_sys::rb_thread_call_without_gvl;
-        use std::os::raw::c_void;
-
-        extern "C" fn nogvl_trampoline<F, R>(ptr: *mut c_void) -> *mut c_void
-        where
-            F: FnOnce() -> R,
-        {
-            let f = unsafe { Box::from_raw(ptr as *mut F) };
-            let result = f();
-            Box::into_raw(Box::new(result)) as *mut c_void
-        }
+        use std::ffi::c_void;
 
         pub fn call_without_gvl<F, R>(f: F) -> R
         where
             F: FnOnce() -> R + Send,
             R: Send,
         {
-            let boxed_f = Box::new(f);
-            let ptr = Box::into_raw(boxed_f) as *mut c_void;
+            struct State<F, R> {
+                f: Option<F>,
+                result: Option<R>,
+            }
 
-            let res_ptr = unsafe {
-                rb_thread_call_without_gvl(
-                    Some(nogvl_trampoline::<F, R>),
-                    ptr,
-                    None,
-                    std::ptr::null_mut(),
-                )
+            unsafe extern "C" fn runner<F, R>(data: *mut c_void) -> *mut c_void
+            where
+                F: FnOnce() -> R + Send,
+                R: Send,
+            {
+                let state = &mut *(data as *mut State<F, R>);
+                if let Some(f) = state.f.take() {
+                    state.result = Some(f());
+                }
+                std::ptr::null_mut()
+            }
+
+            let mut state = State {
+                f: Some(f),
+                result: None,
             };
 
-            let boxed_res = unsafe { Box::from_raw(res_ptr as *mut R) };
-            *boxed_res
+            unsafe {
+                rb_sys::rb_thread_call_without_gvl(
+                    Some(runner::<F, R>),
+                    &mut state as *mut _ as *mut c_void,
+                    None,
+                    std::ptr::null_mut(),
+                );
+            }
+
+            state.result.expect("GVL callback finished")
         }
       RUST
     end
 
     def self.dynamic_hash_rs_content
       <<~RUST
-        use magnus::{value::ReprValue, Error, RArray, RHash, Ruby, Symbol, Value};
+        use magnus::{
+            prelude::*, rb_sys::AsRawValue, Error, Float, Integer, RArray, RHash, RString, Ruby, Symbol, Value,
+        };
         use serde_json::{Map, Number, Value as JsonValue};
 
         pub fn rval_to_json(val: Value) -> JsonValue {
-            if val.is_nil() {
-                return JsonValue::Null;
-            }
-            if let Ok(b) = bool::try_convert(val) {
-                return JsonValue::Bool(b);
-            }
-            if let Ok(i) = i64::try_convert(val) {
-                return JsonValue::Number(Number::from(i));
-            }
-            if let Ok(f) = f64::try_convert(val) {
-                if let Some(n) = Number::from_f64(f) {
-                    return JsonValue::Number(n);
+            let raw = val.as_raw();
+            // CRuby special constants: Qnil = 8, Qtrue = 20, Qfalse = 0
+            if raw == 8 || val.is_nil() {
+                JsonValue::Null
+            } else if raw == 20 {
+                JsonValue::Bool(true)
+            } else if raw == 0 {
+                JsonValue::Bool(false)
+            } else if let Some(i) = Integer::from_value(val) {
+                if let Ok(num) = i.to_i64() {
+                    JsonValue::Number(num.into())
+                } else {
+                    JsonValue::Number(i.to_u64().unwrap_or(0).into())
                 }
-            }
-            if let Ok(s) = String::try_convert(val) {
-                return JsonValue::String(s);
-            }
-            if let Ok(sym) = Symbol::try_convert(val) {
-                if let Ok(s) = sym.name() {
-                    return JsonValue::String(s.to_string());
-                }
-            }
-            if let Ok(hash) = RHash::try_convert(val) {
+            } else if let Some(f) = Float::from_value(val) {
+                Number::from_f64(f.to_f64())
+                    .map(JsonValue::Number)
+                    .unwrap_or(JsonValue::Null)
+            } else if let Some(s) = RString::from_value(val) {
+                JsonValue::String(s.to_string().unwrap_or_default())
+            } else if let Some(sym) = Symbol::from_value(val) {
+                JsonValue::String(sym.name().unwrap_or_default().to_string())
+            } else if let Some(h) = RHash::from_value(val) {
                 let mut map = Map::new();
-                let _ = hash.each(|k: Value, v: Value| {
-                    let key_str = if let Ok(s) = String::try_convert(k) {
-                        s
-                    } else if let Ok(sym) = Symbol::try_convert(k) {
-                        sym.name().map(|n| n.to_string()).unwrap_or_else(|_| k.to_string())
+                let _ = h.foreach(|k: Value, v: Value| {
+                    let key = if let Some(s) = RString::from_value(k) {
+                        s.to_string().unwrap_or_default()
+                    } else if let Some(sym) = Symbol::from_value(k) {
+                        sym.name().unwrap_or_default().to_string()
                     } else {
                         k.to_string()
                     };
-                    map.insert(key_str, rval_to_json(v));
-                    Ok(())
+                    map.insert(key, rval_to_json(v));
+                    Ok(magnus::r_hash::ForEach::Continue)
                 });
-                return JsonValue::Object(map);
+                JsonValue::Object(map)
+            } else if let Some(arr) = RArray::from_value(val) {
+                let vec: Vec<JsonValue> = arr.into_iter().map(rval_to_json).collect();
+                JsonValue::Array(vec)
+            } else {
+                JsonValue::String(val.to_string())
             }
-            if let Ok(arr) = RArray::try_convert(val) {
-                let mut vec = Vec::with_capacity(arr.len());
-                for item in arr.into_iter() {
-                    vec.push(rval_to_json(item));
-                }
-                return JsonValue::Array(vec);
-            }
-            JsonValue::String(val.to_string())
         }
 
         pub fn json_to_rval(ruby: &Ruby, val: &JsonValue) -> Result<Value, Error> {
             match val {
                 JsonValue::Null => Ok(ruby.qnil().as_value()),
-                JsonValue::Bool(b) => Ok(ruby.into_value(*b)),
+                JsonValue::Bool(b) => Ok(ruby.into_value(*b).as_value()),
                 JsonValue::Number(n) => {
                     if let Some(i) = n.as_i64() {
-                        Ok(ruby.into_value(i))
+                        Ok(ruby.into_value(i).as_value())
                     } else if let Some(f) = n.as_f64() {
-                        Ok(ruby.into_value(f))
+                        Ok(ruby.into_value(f).as_value())
                     } else {
-                        Ok(ruby.into_value(n.to_string()))
+                        Ok(ruby.qnil().as_value())
                     }
                 }
-                JsonValue::String(s) => Ok(ruby.into_value(s.as_str())),
+                JsonValue::String(s) => Ok(ruby.str_new(s).as_value()),
                 JsonValue::Array(arr) => {
-                    let rarr = ruby.ary_new_capa(arr.len());
+                    let r_arr = ruby.ary_new_capa(arr.len());
                     for item in arr {
-                        rarr.push(json_to_rval(ruby, item)?)?;
+                        r_arr.push(json_to_rval(ruby, item)?)?;
                     }
-                    Ok(rarr.as_value())
+                    Ok(r_arr.as_value())
                 }
                 JsonValue::Object(map) => {
-                    let rhash = ruby.hash_new();
+                    let r_hash = ruby.hash_new();
                     for (k, v) in map {
-                        let rkey = ruby.into_value(k.as_str());
-                        let rval = json_to_rval(ruby, v)?;
-                        rhash.aset(rkey, rval)?;
+                        let rk = ruby.str_new(k);
+                        let rv = json_to_rval(ruby, v)?;
+                        r_hash.aset(rk, rv)?;
                     }
-                    Ok(rhash.as_value())
+                    Ok(r_hash.as_value())
                 }
             }
         }
@@ -410,23 +440,8 @@ module Railst
         use rayon::prelude::*;
         use serde_json::{json, Value as JsonValue};
 
-        pub fn transform_record(ruby: &Ruby, record: RHash, config: RHash) -> Result<Value, Error> {
-            let mut raw_record = rval_to_json(record.as_value());
-            let raw_config = rval_to_json(config.as_value());
-
-            let field = raw_config.get("compute_field").and_then(|v| v.as_str()).unwrap_or("value").to_string();
-            let mult = raw_config.get("multiplier").and_then(|v| v.as_f64()).unwrap_or(1.0);
-
-            if let JsonValue::Object(ref mut map) = raw_record {
-                let current_val = map.get(&field).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                map.insert(format!("{}_computed", field), json!(current_val * mult));
-                map.insert("processed_by".to_string(), json!("rust_magnus"));
-            }
-
-            json_to_rval(ruby, &raw_record)
-        }
-
         pub fn process_batch(ruby: &Ruby, records: RArray, config: RHash) -> Result<Value, Error> {
+            // 1. Convert dynamic Ruby objects to Rust JsonValues while holding GVL
             let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
             let raw_config = rval_to_json(config.as_value());
 
@@ -446,6 +461,7 @@ module Railst
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
 
+            // 2. Release GVL and process in parallel across all CPU cores with Rayon
             let processed_records = call_without_gvl(move || {
                 raw_records
                     .into_par_iter()
@@ -470,6 +486,7 @@ module Railst
                     .collect::<Vec<JsonValue>>()
             });
 
+            // 3. Serialize back into native Ruby Hash / Array
             let result_json = JsonValue::Array(processed_records);
             json_to_rval(ruby, &result_json)
         }
@@ -478,6 +495,7 @@ module Railst
             let raw_records: Vec<JsonValue> = records.into_iter().map(rval_to_json).collect();
             let target_field = metric_field.clone();
 
+            // Release GVL for parallel reduction across all cores
             let (count, sum, min, max) = call_without_gvl(move || {
                 let values: Vec<f64> = raw_records
                     .into_par_iter()
@@ -516,6 +534,39 @@ module Railst
             });
 
             json_to_rval(ruby, &summary)
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            #[test]
+            fn test_parallel_reduction_metrics() {
+                let records = vec![
+                    json!({ "reading": 10.0 }),
+                    json!({ "reading": 20.0 }),
+                    json!({ "reading": 30.0 }),
+                ];
+
+                let target_field = "reading".to_string();
+                let values: Vec<f64> = records
+                    .into_par_iter()
+                    .filter_map(|rec| {
+                        if let JsonValue::Object(map) = rec {
+                            map.get(&target_field).and_then(|v| v.as_f64())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                assert_eq!(values.len(), 3);
+                let sum: f64 = values.par_iter().sum();
+                assert_eq!(sum, 60.0);
+                let count = values.len();
+                let avg = sum / count as f64;
+                assert_eq!(avg, 20.0);
+            }
         }
       RUST
     end
@@ -1059,13 +1110,17 @@ module Railst
 
       Templates.inject_into(target_dir, project_root)
 
-      # Append rb_sys into Gemfile if not present
+      # Append rb_sys and railst into Gemfile if not present
       gemfile = target_dir.join("Gemfile")
       if gemfile.exist?
         gem_content = gemfile.read
-        unless gem_content.include?("rb_sys")
+        missing_gems = []
+        missing_gems << '  gem "railst", "~> 0.2"' unless gem_content.include?("railst")
+        missing_gems << '  gem "rb_sys", "~> 0.9"' unless gem_content.include?("rb_sys")
+
+        unless missing_gems.empty?
           File.open(gemfile, "a") do |f|
-            f.puts "\n# Rust C-extension build tooling\ngroup :development, :test do\n  gem \"rb_sys\", \"~> 0.9\"\nend\n"
+            f.puts "\n# Rust on Rails development & build tooling\ngroup :development, :test do\n#{missing_gems.join("\n")}\nend\n"
           end
         end
       end
@@ -1082,7 +1137,13 @@ module Railst
 
       Dir.chdir(target_dir) do
         Kernel.system(Environment.toolchains_env, "bundle", "install")
-        Kernel.system(Environment.toolchains_env, "bin/rake", "rust:build")
+        success = Kernel.system(Environment.toolchains_env, "bin/rake", "rust:build")
+        unless success
+          puts ""
+          puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to compile native Rust backend."
+          puts ""
+          exit 1
+        end
       end
 
       puts ""

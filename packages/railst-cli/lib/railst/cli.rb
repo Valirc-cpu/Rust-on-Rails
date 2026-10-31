@@ -440,13 +440,17 @@ module Railst
 
       Templates.inject_into(target_dir, project_root)
 
-      # Append rb_sys into Gemfile if not present
+      # Append rb_sys and railst into Gemfile if not present
       gemfile = target_dir.join("Gemfile")
       if gemfile.exist?
         gem_content = gemfile.read
-        unless gem_content.include?("rb_sys")
+        missing_gems = []
+        missing_gems << '  gem "railst", "~> 0.2"' unless gem_content.include?("railst")
+        missing_gems << '  gem "rb_sys", "~> 0.9"' unless gem_content.include?("rb_sys")
+
+        unless missing_gems.empty?
           File.open(gemfile, "a") do |f|
-            f.puts "\n# Rust C-extension build tooling\ngroup :development, :test do\n  gem \"rb_sys\", \"~> 0.9\"\nend\n"
+            f.puts "\n# Rust on Rails development & build tooling\ngroup :development, :test do\n#{missing_gems.join("\n")}\nend\n"
           end
         end
       end
@@ -463,7 +467,13 @@ module Railst
 
       Dir.chdir(target_dir) do
         Kernel.system(Environment.toolchains_env, "bundle", "install")
-        Kernel.system(Environment.toolchains_env, "bin/rake", "rust:build")
+        success = Kernel.system(Environment.toolchains_env, "bin/rake", "rust:build")
+        unless success
+          puts ""
+          puts "   #{Terminal.badge("ERROR", bg: :red, fg: :white)} Failed to compile native Rust backend."
+          puts ""
+          exit 1
+        end
       end
 
       puts ""
