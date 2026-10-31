@@ -5,25 +5,25 @@
 
 ---
 
-## 🏛 Arsitektur Sistem
+## Arsitektur Sistem
 
 Framework ini menggunakan integrasi *in-process native C-ABI* (tanpa overhead jaringan, soket, atau IPC):
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Rails 8 Application                     │
-│  - REST Controllers & Dynamic Routing (config/routes.rb)   │
-│  - ActiveRecord ORM & Migrations (app/models/)              │
-│  - RustBacked Concern (app/models/concerns/rust_backed.rb)  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ In-Process FFI (Magnus 0.9)
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Rust Engine (ext/rust_backend)              │
-│  - Dynamic Hash Converter (src/dynamic_hash.rs)             │
-│  - No-GVL Parallel Threading (src/gvl.rs)                   │
-│  - Multi-Core Rayon Cruncher (src/data_processor.rs)        │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                     Rails 8 Application                     |
+|  - REST Controllers & Dynamic Routing (config/routes.rb)   |
+|  - ActiveRecord ORM & Migrations (app/models/)              |
+|  - RustBacked Concern (app/models/concerns/rust_backed.rb)  |
++------------------------------+------------------------------+
+                               | In-Process FFI (Magnus 0.9)
+                               v
++-------------------------------------------------------------+
+|                 Rust Engine (ext/rust_backend)              |
+|  - Dynamic Hash Converter (src/dynamic_hash.rs)             |
+|  - No-GVL Parallel Threading (src/gvl.rs)                   |
+|  - Multi-Core Rayon Cruncher (src/data_processor.rs)        |
++-------------------------------------------------------------+
 ```
 
 ### Keunggulan Utama
@@ -33,7 +33,7 @@ Framework ini menggunakan integrasi *in-process native C-ABI* (tanpa overhead ja
 
 ---
 
-## ⚡ Cara Aktivasi & Menjalankan Project
+## Cara Aktivasi dan Menjalankan Project
 
 ### 1. Prasyarat Lingkungan
 Pastikan environment shell Anda (`~/.bashrc` atau `~/.zshrc`) telah memuat path berikut:
@@ -72,7 +72,7 @@ Server Rails akan otomatis memuat modul `RustBackend` saat booting.
 
 ---
 
-## 🛠 Panduan Developer & Workflow Scaffolding
+## Panduan Developer dan Workflow Scaffolding
 
 ### 1. Scaffold Resource Berbasis Rust (`rust:resource`)
 Gunakan generator bawaan untuk membuat resource lengkap (Migrasi DB + Model dengan `RustBacked` + Controller REST & Batch + Routes + Integration Tests):
@@ -112,7 +112,7 @@ bin/rake rust:clean
 
 ---
 
-## 💻 Contoh Penggunaan Kode
+## Contoh Penggunaan Kode
 
 ### A. Menggunakan Model ActiveRecord
 ```ruby
@@ -147,7 +147,7 @@ RustBackend.process_record({ "user_id" => 42, "balance" => 1000.0 })
 
 ---
 
-## 📂 Struktur Direktori
+## Struktur Direktori
 
 ```
 Rust-on-Ruby/
