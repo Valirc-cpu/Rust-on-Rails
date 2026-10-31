@@ -1,10 +1,4 @@
 Rails.application.routes.draw do
-  resources :data_points do
-    collection do
-      post :process_batch
-      get :metrics
-    end
-  end
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
