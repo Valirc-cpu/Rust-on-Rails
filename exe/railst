@@ -1,0 +1,194 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "pathname"
+require "fileutils"
+
+module Railst
+  class CLI
+    def self.start(args = ARGV)
+      new(args).run
+    end
+
+    def initialize(args)
+      @args = args.dup
+      @command = @args.shift || "help"
+    end
+
+    def run
+      case @command
+      when "run", "server", "s"
+        run_server
+      when "build"
+        run_build
+      when "test"
+        run_test
+      when "ci"
+        run_ci
+      when "generate", "g"
+        run_generate
+      when "console", "c"
+        run_console
+      when "setup"
+        run_setup
+      when "db"
+        run_db
+      when "clean"
+        run_clean
+      when "install"
+        run_install_cli
+      when "help", "--help", "-h"
+        show_help
+      when "version", "--version", "-v"
+        puts "Railst Framework CLI v0.1.0 (Rails 8 + Magnus 0.9)"
+      else
+        if project_root && File.exist?(project_root.join("bin/rails"))
+          system_in_root("bin/rails", @command, *@args)
+        else
+          puts "Unknown command: #{@command}"
+          show_help
+          exit 1
+        end
+      end
+    end
+
+    private
+
+    def project_root
+      @project_root ||= begin
+        current = Pathname.pwd
+        loop do
+          return current if current.join("bin/rails").exist? && current.join("ext/rust_backend").exist?
+          break if current.root?
+          current = current.parent
+        end
+        nil
+      end
+    end
+
+    def require_project_root!
+      unless project_root
+        abort "Error: You must run this command inside a Rust-on-Ruby project directory."
+      end
+    end
+
+    def system_in_root(*cmd)
+      require_project_root!
+      Dir.chdir(project_root) do
+        exit_code = system(*cmd)
+        exit(exit_code ? 0 : 1)
+      end
+    end
+
+    def run_server
+      require_project_root!
+      so_path = project_root.join("lib/rust_backend/rust_backend.so")
+      unless File.exist?(so_path)
+        puts "[railst] Compiled Rust backend not found. Building first..."
+        system_in_root("bin/rake", "rust:build")
+      end
+
+      if File.exist?(project_root.join("bin/dev"))
+        system_in_root("bin/dev", *@args)
+      else
+        system_in_root("bin/rails", "server", *@args)
+      end
+    end
+
+    def run_build
+      require_project_root!
+      system_in_root("bin/rake", "rust:build")
+    end
+
+    def run_test
+      require_project_root!
+      if @args.empty?
+        puts "[railst] Running native Rust tests..."
+        rust_ok = system("bin/rake rust:test", chdir: project_root.to_s)
+        puts "\n[railst] Running Rails test suite..."
+        rails_ok = system("bin/rails test", chdir: project_root.to_s)
+        exit((rust_ok && rails_ok) ? 0 : 1)
+      else
+        system_in_root("bin/rails", "test", *@args)
+      end
+    end
+
+    def run_ci
+      require_project_root!
+      system_in_root("bin/ci", *@args)
+    end
+
+    def run_generate
+      require_project_root!
+      system_in_root("bin/rails", "generate", *@args)
+    end
+
+    def run_console
+      require_project_root!
+      system_in_root("bin/rails", "console", *@args)
+    end
+
+    def run_setup
+      require_project_root!
+      system_in_root("bin/setup", *@args)
+    end
+
+    def run_db
+      require_project_root!
+      sub = @args.shift || "migrate"
+      system_in_root("bin/rails", "db:#{sub}", *@args)
+    end
+
+    def run_clean
+      require_project_root!
+      system_in_root("bin/rake", "rust:clean")
+    end
+
+    def run_install_cli
+      user_gem_bin = `ruby -r rubygems -e "puts Gem.user_dir" 2>/dev/null`.strip
+      dest_dir = if !user_gem_bin.empty? && File.directory?(user_gem_bin)
+        File.join(user_gem_bin, "bin")
+      else
+        File.expand_path("~/.local/bin")
+      end
+
+      FileUtils.mkdir_p(dest_dir)
+      dest_path = File.join(dest_dir, "railst")
+      source_script = File.expand_path(__FILE__)
+
+      FileUtils.cp(source_script, dest_path)
+      File.chmod(0755, dest_path)
+
+      puts "[railst] Successfully installed railst CLI to: #{dest_path}"
+      puts "[railst] You can now run 'railst <command>' from any directory!"
+    end
+
+    def show_help
+      puts <<~HELP
+        Usage: railst <command> [options]
+
+        Available Commands:
+          railst run                 Start the Rails development server (auto-builds Rust)
+          railst build               Compile the Magnus Rust backend extension
+          railst test [path]         Run Rust unit tests and Rails test suite
+          railst ci                  Run the full Continuous Integration verification suite
+          railst g <generator>       Run Rails/Rust generators (e.g. railst g rust:resource ...)
+          railst c                   Open the interactive Rails console
+          railst db [action]         Run database commands (migrate, rollback, prepare, seed)
+          railst setup               Install dependencies, setup DB, and build Rust backend
+          railst clean               Clean Rust build artifacts
+          railst install             Install railst command globally into user bin directory
+          railst help                Show this help message
+
+        Examples:
+          railst run
+          railst g rust:resource SensorData device_id:string value:float
+          railst db migrate
+          railst test
+          railst ci
+      HELP
+    end
+  end
+end
+
+Railst::CLI.start if __FILE__ == $PROGRAM_NAME
