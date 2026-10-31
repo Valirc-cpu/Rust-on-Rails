@@ -1,12 +1,12 @@
 # Rust-on-Ruby Framework
 
-Framework pemrosesan data berkinerja tinggi yang menggabungkan produktivitas pengembangan **Ruby on Rails 8** dengan kecepatan komputasi multi-core **Rust murni** melalui **Magnus 0.9**, **Rayon**, dan **Pelepasan Ruby GVL (Global VM Lock)**.
+A high-performance data processing framework combining the rapid development productivity of **Ruby on Rails 8** with the raw multi-core computing power of **pure Rust** via **Magnus 0.9**, **Rayon**, and **Ruby GVL (Global VM Lock) Release**.
 
 ---
 
-## 1. Penjelasan Codebase
+## 1. Codebase Architecture
 
-Arsitektur aplikasi terbagi menjadi dua lapisan utama yang berkomunikasi langsung di dalam memori (in-process) melalui C-ABI tanpa overhead jaringan atau soket:
+The application architecture is divided into two primary layers communicating directly in-process via C-ABI without network overhead, sockets, or IPC serialization penalties:
 
 ```
 +-------------------------------------------------------------+
@@ -25,68 +25,69 @@ Arsitektur aplikasi terbagi menjadi dua lapisan utama yang berkomunikasi langsun
 +-------------------------------------------------------------+
 ```
 
-### Struktur Folder dan Peran Masing-Masing
+### Directory Structure and Component Roles
 
 * **`app/models/concerns/rust_backed.rb`**:
-  Concern ActiveSupport yang disematkan pada model ActiveRecord. Menyediakan method `process_with_rust`, `rust_batch_process`, dan `rust_aggregate` agar model dapat langsung memanggil fungsi Rust.
+  ActiveSupport concern attached to ActiveRecord models. Provides `process_with_rust`, `rust_batch_process`, and `rust_aggregate` methods to allow models to invoke native Rust acceleration directly.
 * **`app/controllers/`**:
-  Controller Rails standar untuk menangani request HTTP. Controller yang dibuat via generator framework otomatis memiliki endpoint REST standar serta endpoint pemrosesan batch paralel (`/process_batch`) dan metrik statistik (`/metrics`).
+  Standard Rails controllers handling HTTP requests. Controllers created via the framework generator automatically include standard REST actions alongside parallel batch endpoints (`/process_batch`) and statistical metrics endpoints (`/metrics`).
 * **`app/services/rust/`**:
-  Service layer untuk mengisolasi logika bisnis khusus yang memanggil modul Rust tanpa mengotori controller.
+  Service layer for isolating specialized business logic that interfaces with Rust without cluttering controllers.
 * **`config/initializers/rust_backend.rb`**:
-  Initializer yang otomatis memuat pustaka bersama Rust (`rust_backend.so`) saat aplikasi Rails melakukan booting.
+  Initializer that automatically loads the compiled native Rust shared library (`rust_backend.so`) during Rails application boot.
 * **`ext/rust_backend/`**:
-  Crate Rust murni tempat seluruh kode native berada:
-  * `Cargo.toml`: Konfigurasi dependensi Rust (`magnus`, `rb-sys`, `rayon`, `serde`, `serde_json`).
-  * `extconf.rb`: Script pembuat Makefile berbasis `rb-sys`.
-  * `src/lib.rs`: Entry point Magnus yang mengekspor fungsi Rust ke namespace Ruby `RustBackend`.
-  * `src/gvl.rs`: Wrapper aman untuk `rb_thread_call_without_gvl`, melepaskan GVL Ruby agar thread CPU murni dapat berjalan paralel.
-  * `src/dynamic_hash.rs`: Konverter dua arah antara tipe data dinamis Ruby (`RHash`, `RArray`, `Symbol`, angka, string, boolean) dengan `serde_json::Value` di Rust.
-  * `src/data_processor.rs`: Implementasi komputasi batch paralel dan reduksi statistik multi-core menggunakan parallel iterator milik Rayon.
+  Pure Rust crate containing all native code:
+  * `Cargo.toml`: Rust dependency configuration (`magnus`, `rb-sys`, `rayon`, `serde`, `serde_json`).
+  * `extconf.rb`: Makefile generator script powered by `rb-sys`.
+  * `src/lib.rs`: Magnus entry point exporting native Rust functions to the Ruby `RustBackend` namespace.
+  * `src/gvl.rs`: Safe wrapper for `rb_thread_call_without_gvl`, releasing the Ruby GVL so multi-threaded CPU tasks run across all physical cores.
+  * `src/dynamic_hash.rs`: Bi-directional converter between Ruby dynamic types (`RHash`, `RArray`, `Symbol`, integers, floats, strings, booleans) and Rust `serde_json::Value`.
+  * `src/data_processor.rs`: High-throughput batch crunching and parallel reduction metrics implemented using Rayon parallel iterators.
 * **`lib/generators/rust/`**:
-  Kumpulan generator kustom Rails untuk scaffolding:
-  * `resource`: Generator terpadu untuk membuat migrasi, model dengan `RustBacked`, controller batch/metrics, dan routing.
-  * `service`: Generator untuk membuat service Ruby berbasis Rust.
+  Custom Rails scaffolding generators:
+  * `resource`: Unified generator creating migrations, models with `RustBacked`, batch/metrics controllers, and routes.
+  * `service`: Generator creating standalone Ruby services integrated with native Rust.
 * **`lib/tasks/rust.rake`**:
-  Rake tasks otomatis untuk lifecycle Rust: `rust:build`, `rust:test`, dan `rust:clean`. Task `test` di Rails otomatis memanggil `rust:build`.
+  Automated Rake tasks for the Rust lifecycle: `rust:build`, `rust:test`, and `rust:clean`. Rails test suites automatically invoke `rust:build`.
 * **`lib/rust_backend.rb`**:
-  Loader Ruby yang bertugas memuat biner `rust_backend.so`.
+  Ruby loader responsible for requiring `rust_backend.so`.
 * **`bin/ci`**:
-  Runner Continuous Integration lengkap yang menjalankan setup, linter RuboCop, audit keamanan, unit test Rust, dan test suite Rails.
+  Comprehensive Continuous Integration runner that executes setup, RuboCop linter, security audits, Rust unit tests, and Rails test suites.
 * **`bin/railst` & `exe/railst`**:
-  Executable CLI mandiri framework `railst` untuk menjalankan semua perintah tanpa mengetik awalan `bin/`.
+  Standalone framework CLI executable enabling developers to run all commands without the `bin/` prefix.
 
 ---
 
-## 2. Command CLI `railst` (Developer Interface Tanpa Awalan `bin/`)
+## 2. The `railst` CLI (Developer Interface Without `bin/` Prefix)
 
-Framework ini menyediakan command line interface bawaan bernama **`railst`** sehingga developer tidak perlu mengetik awalan `bin/` atau `bundle exec`. Output CLI didesain dengan format bersih, elegan, dan informatif layaknya Laravel (`php artisan serve`), dilengkapi pendeteksi tabrakan port otomatis dan penekanan pesan warning verbose sistem.
+The framework includes a built-in CLI utility named **`railst`** so developers do not need to prefix commands with `bin/` or `bundle exec`. Output is styled in a clean, elegant format inspired by Laravel (`php artisan serve`), featuring automatic port collision handling, clean error boxes, and suppression of noisy system C-library warnings.
 
-### Cara Mengaktifkan Command `railst`
-Di komputer mana pun framework ini di-clone, jalankan perintah setup sekali:
+### Installing and Activating `railst`
+
+On any machine where this repository is cloned, run the setup task once:
 
 ```bash
 bin/setup --skip-server
-# atau jika hanya ingin mengaktifkan CLI ke direktori PATH sistem:
+# Or to install the standalone CLI into your PATH:
 bin/railst install
 ```
 
-Perintah di atas akan menyalin biner `railst` ke direktori path user (`$(ruby -e 'puts Gem.user_dir')/bin` dan `~/.local/bin`) yang sudah terdaftar di `$PATH`.
+This copies the `railst` executable to your user gem binary directory (`$(ruby -e 'puts Gem.user_dir')/bin` and `~/.local/bin`) registered in `$PATH`.
 
-### Menjalankan Server (`railst run`)
+### Running the Server (`railst run`)
 
-Perintah `railst run` otomatis mengecek dan mengompilasi ekstensi Rust jika belum dibangun, menyaring log internal Puma yang bising, dan menyajikan antarmuka visual server yang bersih:
+The `railst run` command automatically verifies and builds the native Rust extension if not yet compiled, filters internal Puma noise, and renders a clean console dashboard:
 
 ```bash
-railst run                       # Menjalankan server pada port default 3000
-railst run -p 3001               # Menjalankan server pada port spesifik (misal: 3001)
-railst run --find-port           # Otomatis memilih port berikutnya jika default terpakai
-railst run -b 0.0.0.0            # Mengikat server ke seluruh antarmuka jaringan (IP 0.0.0.0)
-railst run -e production         # Menjalankan dalam environment spesifik
-railst run --verbose             # Menampilkan log raw lengkap Rails, SQL query, & Puma
+railst run                       # Start server on default port 3000
+railst run -p 3001               # Start server on a specific port (e.g. 3001)
+railst run --find-port           # Automatically select the next open port if occupied
+railst run -b 0.0.0.0            # Bind server to all network interfaces
+railst run -e production         # Run in a specific environment
+railst run --verbose             # Display full raw Rails, SQL query, and Puma logs
 ```
 
-#### Tampilan Server Saat Berjalan Normal (Laravel-Style)
+#### Normal Server Output (Laravel-Style)
 ```text
    INFO  Server running on [http://127.0.0.1:3001].
 
@@ -101,8 +102,8 @@ railst run --verbose             # Menampilkan log raw lengkap Rails, SQL query,
    INFO  Server stopped.
 ```
 
-#### Tampilan Saat Terjadi Tabrakan Port (Clean Error Reporting)
-Jika port 3000 sedang ditempati oleh proses lain (seperti Docker proxy):
+#### Port Collision Handling (Clean Error Reporting)
+If port 3000 is occupied by another process (e.g., Docker proxy):
 ```text
    ERROR  Failed to listen on 127.0.0.1:3000 (reason: Address already in use).
 
@@ -116,120 +117,123 @@ Jika port 3000 sedang ditempati oleh proses lain (seperti Docker proxy):
 
 ---
 
-### Daftar Perintah `railst` Lengkap
+### Complete `railst` Command Reference
 
-| Perintah | Deskripsi |
+| Command | Description |
 | :--- | :--- |
-| `railst run [options]` | Menjalankan server development dengan auto-build Rust dan tampilan bersih |
-| `railst build` | Mengompilasi crate `ext/rust_backend` via Cargo ke `lib/rust_backend/` |
-| `railst test [path]` | Menjalankan unit test native Rust (`cargo test`) dan Minitest Rails |
-| `railst ci` | Menjalankan 7 tahapan verifikasi Continuous Integration menyeluruh |
-| `railst g rust:resource <Name> [field:type]` | Scaffolding terpadu: migrasi, model `RustBacked`, controller, dan routing |
-| `railst g rust:service <Name>` | Membuat service Ruby khusus yang terintegrasi langsung dengan Rust |
-| `railst c` | Membuka konsol interaktif Rails dengan namespace `RustBackend` siap pakai |
-| `railst db [action]` | Menjalankan operasi database (`migrate`, `rollback`, `prepare`, `seed`) |
-| `railst setup` | Instalasi dependensi gem, migrasi DB, dan kompilasi Rust extension |
-| `railst clean` | Membersihkan artefak build target Cargo pada crate Rust |
-| `railst install` | Menginstal biner `railst` secara global ke direktori bin user |
-| `railst help` | Menampilkan bantuan penggunaan dan opsi argumen |
+| `railst run [options]` | Start the Rails development server with Rust auto-compilation and clean output |
+| `railst build` | Compile the native `ext/rust_backend` crate via Cargo into `lib/rust_backend/` |
+| `railst test [path]` | Run native Rust unit tests (`cargo test`) and the Rails test suite |
+| `railst ci` | Run the complete 7-step Continuous Integration verification pipeline |
+| `railst g rust:resource <Name> [field:type]` | Scaffold unified resource: migration, `RustBacked` model, controller, and routes |
+| `railst g rust:service <Name>` | Generate a dedicated Ruby service wired to native Rust functions |
+| `railst c` | Open the interactive Rails console with the `RustBackend` namespace loaded |
+| `railst db [action]` | Execute database operations (`migrate`, `rollback`, `prepare`, `seed`) |
+| `railst setup` | Install gem dependencies, prepare database, and compile Rust extension |
+| `railst clean` | Clean Cargo build target artifacts in the Rust crate |
+| `railst install` | Install the `railst` binary globally into the user binary directory |
+| `railst help` | Display command-line usage and available options |
 
 ---
 
-## 3. Tampilan Frontend Baru (Rust + Ruby Fusion Palette)
+## 3. Frontend Landing Experience (Rust + Ruby Fusion Palette)
 
-Landing page bawaan ("Yay! You're on Rails!") telah digantikan dengan antarmuka front-end modern yang didesain secara elegan, ringkas, dan bebas emoji.
+The default Rails welcome screen ("Yay! You're on Rails!") has been replaced with a modern, elegant, and concise frontend interface.
 
-### Karakteristik Desain:
-* **Palet Warna Rust & Ruby**: Mengombinasikan warna khas tembaga/perunggu Rust (`#CE412B`, `#E57353`) dengan crimson dan garnet mewah khas Ruby (`#CC342D`, `#700010`).
-* **Dark Glassmorphic Surface**: Berlatarbelakang obsidian gelap (`#0A0A0D`) dengan aksen ambient radial glow dan kartu kontainer transparan ber-filter *blur*.
-* **Live In-Browser Benchmark Widget**: Fitur interaktif di halaman utama untuk menguji latensi pemrosesan data in-process Rust FFI secara langsung. Developer dapat memilih 10.000 hingga 100.000 data point dan mengevaluasi throughput per detik secara *real-time*.
-* **Status Arsitektur Terintegrasi**: Menampilkan status aktif FFI Magnus 0.9, pelepasan GVL, jumlah CPU core yang terdeteksi oleh Rayon, serta status adapter database.
+### Design Features:
+* **Rust & Ruby Fusion Palette**: Combines signature Rust metallic copper/bronze tones (`#CE412B`, `#E57353`) with rich Ruby crimson and deep garnet accents (`#CC342D`, `#700010`).
+* **Dark Glassmorphic Surface**: Built on a deep obsidian canvas (`#0A0A0D`) with subtle ambient radial glow accents and blurred glassmorphic containers.
+* **Interactive Live In-Browser Benchmark Widget**: Live sandbox allowing developers to benchmark in-process Rust FFI latency directly from their browser. Choose from 10,000 to 100,000 data points to calculate throughput and sub-millisecond reduction times in real time.
+* **Architecture Diagnostics Grid**: Live status indicators for Magnus 0.9 FFI status, Ruby GVL release mode, detected CPU cores via Rayon, Rails 8.1, Ruby 3.4, and database adapters.
+* **Zero Emojis**: Crisp vector SVG icons integrated cleanly throughout the layout.
 
 ---
 
-## 4. Prasyarat dan Cara Instalasi
+## 4. Prerequisites and Installation Guide
 
-### Prasyarat Sistem
-* **Ruby**: Versi 3.4.x atau lebih baru beserta header development (`ruby.h`).
-* **Rust & Cargo**: Terpasang via `rustup` (rekomendasi) atau package manager.
-* **Clang / LLVM Libraries**: Diperlukan oleh `bindgen` saat kompilasi `rb-sys`.
+### System Requirements
+* **Ruby**: Version 3.4.x or later with C header development files (`ruby.h`).
+* **Rust & Cargo**: Installed via `rustup` (recommended) or system package manager.
+* **Clang / LLVM Libraries**: Required by `bindgen` during `rb-sys` compilation.
 
-### Langkah 1: Konfigurasi Environment Shell
-Tambahkan baris berikut ke file konfigurasi shell Anda (`~/.bashrc` atau `~/.zshrc`):
+### Step 1: Shell Environment Configuration
+Add the following configuration lines to your shell profile (`~/.bashrc` or `~/.zshrc`):
 
 ```bash
-# Path binary gem user dan Cargo
+# User gem binaries and Cargo toolchain paths
 export PATH="$HOME/.cargo/bin:$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 
-# Path library Clang dan header bindgen
+# Clang library path and bindgen include arguments
 export LIBCLANG_PATH="$HOME/.local/lib"
 export BINDGEN_EXTRA_CLANG_ARGS="-I$HOME/.local/lib/clang/23/include"
 ```
 
-Setelah ditambahkan, muat ulang shell:
+Reload your shell after saving:
 ```bash
-source ~/.bashrc  # atau source ~/.zshrc
+source ~/.bashrc  # Or: source ~/.zshrc
 ```
 
-### Langkah 2: Setup Otomatis Proyek
-Di direktori root proyek, jalankan:
+### Step 2: Automated Project Setup
+In the project root directory, run:
 
 ```bash
 bin/setup --skip-server
 ```
 
-Script ini otomatis melakukan:
-1. Verifikasi dan instalasi gem dependensi (`bundle install`).
-2. Kompilasi modul Rust menjadi pustaka biner `lib/rust_backend/rust_backend.so`.
-3. Persiapan database SQLite (`bin/rails db:prepare`).
-4. Pembersihan log dan berkas sementara.
+This automated setup script:
+1. Verifies and installs all gem dependencies (`bundle install`).
+2. Compiles the native Rust extension into `lib/rust_backend/rust_backend.so`.
+3. Prepares the SQLite database (`bin/rails db:prepare`).
+4. Installs the `railst` CLI command.
+5. Clears stale log and temporary files.
 
-### Langkah 3: Menjalankan Server
+### Step 3: Starting the Server
 ```bash
-bin/rails server
+railst run -p 3001
+# Or: railst run --find-port
 ```
-Server Rails akan aktif di `http://localhost:3000`.
+Access the application in your browser at `http://127.0.0.1:3001`.
 
 ---
 
-## 5. Panduan Pembuatan Komponen Aplikasi
+## 5. Guide to Building Application Components
 
-Framework ini mempertahankan 100% alur kerja Rails sambil menyediakan akselerasi Rust.
+The framework preserves 100% of standard Rails conventions while offering native Rust acceleration where needed.
 
-### Metode A: Scaffold Resource Rust Terpadu (Direkomendasikan)
-Untuk membuat resource baru yang otomatis siap memproses data dalam jumlah besar dengan Rust:
+### Method A: Scaffold a Unified Rust Resource (Recommended)
+To generate a new resource ready for high-volume data crunching with native Rust:
 
 ```bash
 railst g rust:resource Invoice customer:string amount:decimal status:string
 ```
 
-Perintah di atas secara otomatis menghasilkan:
-1. **Migration DB**: Berkas migrasi di `db/migrate/..._create_invoices.rb`.
-2. **Model ActiveRecord**: Berkas `app/models/invoice.rb` yang sudah menyertakan `include RustBacked`.
-3. **Controller Lengkap**: Berkas `app/controllers/invoices_controller.rb` dengan aksi CRUD serta endpoint paralel:
-   * `POST /invoices/process_batch` (Pemrosesan batch multi-core via Rayon).
-   * `GET /invoices/metrics?field=amount` (Reduksi statistik agregat via Rayon).
-4. **Routing**: Mendaftarkan `resources :invoices` beserta endpoint koleksi `process_batch` dan `metrics` di `config/routes.rb`.
-5. **Integration Test**: Berkas pengujian controller di `test/controllers/invoices_controller_test.rb`.
+This generator automatically produces:
+1. **Database Migration**: File at `db/migrate/..._create_invoices.rb`.
+2. **ActiveRecord Model**: File at `app/models/invoice.rb` with `include RustBacked`.
+3. **Controller**: File at `app/controllers/invoices_controller.rb` with standard CRUD and parallel endpoints:
+   * `POST /invoices/process_batch` (Multi-core batch processing via Rayon).
+   * `GET /invoices/metrics?field=amount` (Parallel statistical reduction via Rayon).
+4. **Routing**: Declares `resources :invoices` with `process_batch` and `metrics` collection routes in `config/routes.rb`.
+5. **Integration Tests**: Test file at `test/controllers/invoices_controller_test.rb`.
 
-Jalankan migrasi database setelah scaffolding:
+Execute the database migration after scaffolding:
 ```bash
-bin/rails db:migrate
+railst db migrate
 ```
 
 ---
 
-### Metode B: Menghubungkan Model dan Migration Standar Secara Manual
-Jika Anda sudah memiliki model Rails biasa atau ingin membuat migrasi secara manual:
+### Method B: Connecting Existing Models and Migrations Manually
+If you have existing Rails models or prefer creating migrations manually:
 
-#### 1. Membuat Migrasi Database
+#### 1. Create the Database Migration
 ```bash
 bin/rails generate migration CreateProducts name:string price:decimal quantity:integer
-bin/rails db:migrate
+railst db migrate
 ```
 
-#### 2. Menghubungkan Model ke Rust
-Cukup tambahkan `include RustBacked` pada model Anda:
+#### 2. Attach the Rust Concern to Your Model
+Add `include RustBacked` to your model:
 
 ```ruby
 # app/models/product.rb
@@ -241,27 +245,27 @@ class Product < ApplicationRecord
 end
 ```
 
-Setelah concern disertakan, model otomatis memiliki fungsi akselerasi:
+Once included, the model gains high-performance methods:
 ```ruby
-# Proses per-record
+# Single-record processing
 product = Product.first
 product.process_with_rust
 
-# Batch processing ribuan record sekaligus tanpa memblokir thread HTTP
+# Batch processing thousands of records concurrently without blocking the HTTP thread
 records = Product.all.as_json
 Product.rust_batch_process(records, { "multiplier" => 1.1, "compute_field" => "price" })
 
-# Agregasi metrik paralel (count, sum, avg, min, max)
+# Parallel metrics aggregation (count, sum, avg, min, max)
 Product.rust_aggregate(Product.all, "price")
 ```
 
-#### 3. Membuat Controller Manual
-Buat controller Rails standar:
+#### 3. Implement Custom Controller Actions
+Generate a standard Rails controller:
 ```bash
 bin/rails generate controller Products
 ```
 
-Implementasikan pemanggilan batch Rust di controller:
+Implement the batch call in the controller:
 ```ruby
 # app/controllers/products_controller.rb
 class ProductsController < ApplicationController
@@ -282,14 +286,14 @@ end
 
 ---
 
-### Metode C: Membuat Service Layer Rust Kustom
-Jika Anda memiliki algoritma atau business logic mandiri di luar operasi CRUD:
+### Method C: Creating a Custom Rust Service Layer
+For standalone algorithms, heavy analytics, or business logic independent of CRUD operations:
 
 ```bash
-bin/rails generate rust:service AnomalyDetector
+railst g rust:service AnomalyDetector
 ```
 
-Akan menghasilkan berkas service di `app/services/rust/anomaly_detector_service.rb`:
+This generates a service object at `app/services/rust/anomaly_detector_service.rb`:
 ```ruby
 module Rust
   class AnomalyDetectorService
@@ -298,7 +302,7 @@ module Rust
     end
 
     def call
-      # Panggil fungsi native di RustBackend
+      # Call native RustBackend functions directly
       RustBackend.process_batch(@records, @config)
     end
   end
@@ -307,70 +311,73 @@ end
 
 ---
 
-### Metode D: Menambahkan Fungsi Baru di Rust Crate
-Jika Anda ingin menambahkan fungsi native baru di sisi Rust:
+### Method D: Adding New Functions to the Native Rust Crate
+To extend the native Rust backend with custom algorithms:
 
-1. Buat atau buka berkas modul di `ext/rust_backend/src/`.
-2. Tulis fungsi Rust:
+1. Create or edit a module in `ext/rust_backend/src/`.
+2. Write the native Rust function:
    ```rust
    // ext/rust_backend/src/custom_calc.rs
    use magnus::{Error, Ruby, Value};
 
    pub fn complex_hash_operation(ruby: &Ruby, input: String) -> Result<String, Error> {
-       // Logika CPU-intensive murni
+       // Pure CPU-intensive computation
        Ok(format!("processed: {}", input))
    }
    ```
-3. Daftarkan fungsi di `ext/rust_backend/src/lib.rs`:
+3. Register the function in `ext/rust_backend/src/lib.rs`:
    ```rust
    pub mod custom_calc;
 
    #[magnus::init]
    fn init(ruby: &Ruby) -> Result<(), Error> {
        let module = ruby.define_module("RustBackend")?;
-       module.define_singleton_method("complex_hash_operation", magnus::function!(custom_calc::complex_hash_operation, 1))?;
+       module.define_singleton_method(
+           "complex_hash_operation",
+           magnus::function!(custom_calc::complex_hash_operation, 1)
+       )?;
        Ok(())
    }
    ```
-4. Kompilasi ulang:
+4. Rebuild the extension:
    ```bash
-   bin/rake rust:build
+   railst build
    ```
 
 ---
 
-## 6. Panduan Pengujian (Testing)
+## 6. Testing & Quality Assurance
 
-Framework ini menyediakan tiga tingkatan pengujian untuk memastikan stabilitas:
+The framework provides three tiers of testing to ensure system stability and performance:
 
-### 1. Pengujian CI Menyeluruh (All-in-One Pipeline)
+### 1. All-in-One Continuous Integration Pipeline
 ```bash
 railst ci
 ```
-Menjalankan audit linter, scanner kerentanan gem dan importmap, analisis keamanan Brakeman, unit test native Rust, serta integrasi test Rails secara otomatis.
+Runs RuboCop style audits, gem vulnerability scanning (`bundler-audit`), importmap auditing, Brakeman static security analysis, native Rust unit tests, and the Rails integration test suite.
 
-### 2. Pengujian Test Suite Rails & FFI
+### 2. Rails & FFI Integration Test Suite
 ```bash
 railst test
 ```
-Menjalankan pengujian Minitest pada model, controller, dan FFI integration (`test/lib/rust_backend_test.rb`). Hook otomatis akan mengompilasi Rust jika berkas kode native berubah.
+Runs Minitest across models, controllers, and FFI integration (`test/lib/rust_backend_test.rb`). Build hooks automatically recompile Rust code if native source files are modified.
 
-### 3. Pengujian Unit Native Rust Murni
+### 3. Native Rust Crate Unit Tests
 ```bash
 bin/rake rust:test
 ```
-Menjalankan pengujian `cargo test` langsung di dalam crate `ext/rust_backend`.
+Runs `cargo test` directly inside the `ext/rust_backend` crate.
 
 ---
 
-## 7. Prinsip Arsitektur Anti-Spaghetti Code
+## 7. Anti-Spaghetti Architectural Principles
 
-Untuk menjaga performa dan keterbacaan kode seiring pertumbuhan proyek:
+To maintain high performance and codebase clarity as your project scales:
 
-1. **Pemisahan Tanggung Jawab yang Jelas**:
-   * **Rails (Ruby)**: Menangani validasi HTTP, parsing parameter, relasi database, dan migrasi skema.
-   * **Rust**: Menangani komputasi berat, transformasi data berukuran besar, hashing, dan kalkulasi paralel.
-2. **Tidak Ada SQL di Dalam Rust**:
-   Biarkan ActiveRecord mengelola query dan koneksi database. Rust hanya menerima data yang sudah berupa hash/array atau json dan mengembalikan hasil olahan.
-3. **Modularitas Crate**:
-   Hindari menumpuk semua logika pada `ext/rust_backend/src/lib.rs`. Pisahkan domain ke dalam modul terpisah (misalnya `data_processor.rs`, `dynamic_hash.rs`, `gvl.rs`) dan gunakan unit test `#[test]` di setiap modul Rust.
+1. **Clear Separation of Concerns**:
+   * **Rails (Ruby)**: Manages HTTP validation, parameter parsing, database relations, business associations, and schema migrations.
+   * **Rust**: Manages compute-intensive algorithms, large-scale data transformations, hashing, and parallel multi-core reductions.
+2. **No SQL Queries in Rust**:
+   Allow ActiveRecord to govern database connections and query generation. The Rust engine receives in-memory dynamic hashes/arrays or JSON values and returns processed results without database coupling.
+3. **Crate Modularity**:
+   Avoid centralizing all logic inside `ext/rust_backend/src/lib.rs`. Isolate functional domains into dedicated modules (`data_processor.rs`, `dynamic_hash.rs`, `gvl.rs`) with corresponding `#[test]` unit tests in each file.
