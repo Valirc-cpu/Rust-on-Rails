@@ -6,37 +6,46 @@
 
 # Ignore bundler config.
 /.bundle
+packages/**/.bundle
 
 # Ignore all environment files.
-/.env*
+.env*
+*.env
 
 # Ignore all logfiles and tempfiles.
-/log/*
-/tmp/*
-!/log/.keep
-!/tmp/.keep
+log/*
+tmp/*
+**/log/*
+**/tmp/*
+!**/log/.keep
+!**/tmp/.keep
 
 # Ignore pidfiles, but keep the directory.
-/tmp/pids/*
-!/tmp/pids/
-!/tmp/pids/.keep
+tmp/pids/*
+!tmp/pids/
+!tmp/pids/.keep
 
 # Ignore storage (uploaded files in development and any SQLite databases).
-/storage/*
-!/storage/.keep
-/tmp/storage/*
-!/tmp/storage/
-!/tmp/storage/.keep
+storage/*
+**/storage/*
+!storage/.keep
+!**/storage/.keep
 
-/public/assets
+public/assets
+**/public/assets
 
 # Ignore key files for decrypting credentials and more.
-/config/*.key
+config/*.key
+**/config/*.key
 
 # Rust native extension build artifacts
-ext/**/target/
-ext/**/*.so
-ext/**/Makefile
-lib/rust_backend/*.so
+target/
+**/target/
+*.so
+**/*.so
+Makefile
+**/Makefile
 
-
+# Gem builds
+*.gem
+**/*.gem
