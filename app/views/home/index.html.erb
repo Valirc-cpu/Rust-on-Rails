@@ -15,24 +15,15 @@
       <span class="brand-badge">Engine</span>
     </a>
 
-    <div class="nav-links">
-      <span class="status-pill">
-        <span class="dot-status"></span>
-        Rust Backend: Active
-      </span>
-      <span class="status-pill">
-        Rails <%= @rails_version %>
-      </span>
-      <span class="status-pill">
-        Ruby <%= RUBY_VERSION %>
-      </span>
-      <a href="/up" target="_blank" class="status-pill" title="Health Check">
-        Health: 200 OK
-      </a>
+    <nav class="nav-links">
+      <a href="#benchmark" class="nav-link">Benchmark</a>
+      <a href="#architecture" class="nav-link">Architecture</a>
+      <a href="#commands" class="nav-link">CLI Commands</a>
+      <a href="/up" target="_blank" class="nav-link">Health (/up)</a>
       <a href="#benchmark" class="button-primary" style="height: 36px; padding: 0 16px; font-size: 13px;">
-        Test Performance
+        Run Benchmark
       </a>
-    </div>
+    </nav>
   </div>
 </header>
 
@@ -136,7 +127,7 @@
   </section>
 
   <!-- Editorial Feature Grid (feature-card per DESIGN.md) -->
-  <section style="margin-bottom: var(--spacing-section);">
+  <section id="architecture" style="margin-bottom: var(--spacing-section);">
     <div class="feature-section-header">
       <div class="section-label">Core Architecture</div>
       <h2 class="section-title">Engineered for Compute-Heavy Workloads</h2>

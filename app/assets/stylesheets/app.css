@@ -183,27 +183,6 @@ body {
   color: var(--colors-ink);
 }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: var(--rounded-pill);
-  background: var(--colors-surface-card);
-  border: 1px solid var(--colors-hairline);
-  color: var(--colors-body);
-  text-decoration: none;
-}
-
-.dot-status {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--colors-success);
-}
-
 /* ==========================================================================
    Buttons (button-primary & button-secondary per DESIGN.md)
    ========================================================================== */
