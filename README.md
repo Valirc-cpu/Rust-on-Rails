@@ -1,78 +1,56 @@
 # Rust on Rails Framework
 
-A high-performance data processing framework combining the rapid development productivity of **Ruby on Rails 8** with the raw multi-core computing power of **pure Rust** via **Magnus 0.9**, **Rayon**, and **Ruby GVL (Global VM Lock) Release**.
+A high-performance web and data processing framework combining the rapid development productivity of **Ruby on Rails 8** with the raw multi-core computing power of **pure Rust** via **Magnus 0.9**, **Rayon**, and **Ruby GVL (Global VM Lock) Release**.
 
 ---
 
-## 1. Codebase Architecture
+## 1. Monorepo Architecture
 
-The application architecture is divided into two primary layers communicating directly in-process via C-ABI without network overhead, sockets, or IPC serialization penalties:
+The repository is organized into three decoupled packages, following the multi-package ecosystem pattern (similar to Laravel's installer, framework, and application skeleton):
 
 ```
-+-------------------------------------------------------------+
-|                     Rails 8 Application                     |
-|  - Routing & REST Controllers (app/controllers/)            |
-|  - ActiveRecord Models & Concerns (app/models/)             |
-|  - Service Layer (app/services/rust/)                       |
-+------------------------------+------------------------------+
-                               | In-Process FFI (Magnus 0.9)
-                               v
-+-------------------------------------------------------------+
-|                 Rust Engine (ext/rust_backend)              |
-|  - Dynamic Hash Converter (src/dynamic_hash.rs)             |
-|  - GVL Release Wrapper (src/gvl.rs)                         |
-|  - Parallel Data Processor (src/data_processor.rs)          |
-+-------------------------------------------------------------+
+Rust-on-Rails/
+├── packages/
+│   ├── railst-cli/       # Standalone CLI & installer gem ('railst')
+│   ├── rust-backend/     # Pure Rust crate + Magnus 0.9 + Rayon engine ('rust_backend')
+│   └── template/         # Rails 8 starter application skeleton (like laravel/laravel)
+├── bin/
+│   └── railst            # Root executable wrapper delegating to railst-cli
+├── install.sh            # Global one-line curl/bash installer
+└── README.md
 ```
 
-### Directory Structure and Component Roles
+### The Three Packages Explained:
 
-* **`app/models/concerns/rust_backed.rb`**:
-  ActiveSupport concern attached to ActiveRecord models. Provides `process_with_rust`, `rust_batch_process`, and `rust_aggregate` methods to allow models to invoke native Rust acceleration directly.
-* **`app/controllers/`**:
-  Standard Rails controllers handling HTTP requests. Controllers created via the framework generator automatically include standard REST actions alongside parallel batch endpoints (`/process_batch`) and statistical metrics endpoints (`/metrics`).
-* **`app/services/rust/`**:
-  Service layer for isolating specialized business logic that interfaces with Rust without cluttering controllers.
-* **`config/initializers/rust_backend.rb`**:
-  Initializer that automatically loads the compiled native Rust shared library (`rust_backend.so`) during Rails application boot.
-* **`ext/rust_backend/`**:
-  Pure Rust crate containing all native code:
-  * `Cargo.toml`: Rust dependency configuration (`magnus`, `rb-sys`, `rayon`, `serde`, `serde_json`).
-  * `extconf.rb`: Makefile generator script powered by `rb-sys`.
-  * `src/lib.rs`: Magnus entry point exporting native Rust functions to the Ruby `RustBackend` namespace.
-  * `src/gvl.rs`: Safe wrapper for `rb_thread_call_without_gvl`, releasing the Ruby GVL so multi-threaded CPU tasks run across all physical cores.
-  * `src/dynamic_hash.rs`: Bi-directional converter between Ruby dynamic types (`RHash`, `RArray`, `Symbol`, integers, floats, strings, booleans) and Rust `serde_json::Value`.
-  * `src/data_processor.rs`: High-throughput batch crunching and parallel reduction metrics implemented using Rayon parallel iterators.
-* **`lib/generators/rust/`**:
-  Custom Rails scaffolding generators:
-  * `resource`: Unified generator creating migrations, models with `RustBacked`, batch/metrics controllers, and routes.
-  * `service`: Generator creating standalone Ruby services integrated with native Rust.
-* **`lib/tasks/rust.rake`**:
-  Automated Rake tasks for the Rust lifecycle: `rust:build`, `rust:test`, and `rust:clean`. Rails test suites automatically invoke `rust:build`.
-* **`lib/rust_backend.rb`**:
-  Ruby loader responsible for requiring `rust_backend.so`.
-* **`bin/ci`**:
-  Comprehensive Continuous Integration runner that executes setup, RuboCop linter, security audits, Rust unit tests, and Rails test suites.
-* **`bin/railst` & `exe/railst`**:
-  Standalone framework CLI executable enabling developers to run all commands without the `bin/` prefix.
+* **`packages/railst-cli` (`gem "railst"`)**:
+  Standalone command-line interface installed globally on developer machines. Enables developers to run `railst new <app_name>`, `railst s`, `railst c`, `railst g`, `railst t`, `railst doctor`, `railst bench`, and `railst stats` anywhere without needing to clone this repository.
+* **`packages/rust-backend` (`gem "rust_backend"`)**:
+  The core high-performance engine: Magnus 0.9 C-ABI bindings, Rayon parallel work-stealing pool, Ruby GVL release wrappers, dynamic hash serialization, and `RustBacked` ActiveRecord concern.
+* **`packages/template`**:
+  The official application starter skeleton (with dark glassmorphic landing surface, live browser FFI benchmark widget, REST controllers, and batch endpoints).
 
 ---
 
-## 2. The `railst` CLI (Developer Interface Without `bin/` Prefix)
+## 2. Installing the `railst` CLI
 
-The framework includes a built-in CLI utility named **`railst`** so developers do not need to prefix commands with `bin/` or `bundle exec`. Output is styled in a clean, elegant format inspired by Laravel (`php artisan serve`), featuring automatic port collision handling, clean error boxes, and suppression of noisy system C-library warnings.
+Developers only need to install the CLI once to start creating Rust on Rails applications anywhere on their system.
 
-### Installing and Activating `railst`
-
-On any machine where this repository is cloned, run the setup task once:
-
+### Option A: One-Line Installer Script (Recommended)
 ```bash
-bin/setup --skip-server
-# Or to install the standalone CLI into your PATH:
-bin/railst install
+curl -fsSL https://raw.githubusercontent.com/HarmlessValve/Rust-on-Rails/main/install.sh | bash
+# Or if this repository is already cloned locally:
+./install.sh
 ```
 
-This copies the `railst` executable to your user gem binary directory (`$(ruby -e 'puts Gem.user_dir')/bin` and `~/.local/bin`) registered in `$PATH`.
+### Option B: Via RubyGems
+```bash
+gem install railst
+```
+
+Verify your installation and compiler readiness:
+```bash
+railst doctor
+```
 
 ### Running the Server (`railst s` / `railst server`)
 

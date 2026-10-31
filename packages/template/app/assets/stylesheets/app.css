@@ -1,0 +1,681 @@
+/*
+ * Railst Framework Stylesheet
+ * Designed strictly following DESIGN.md (Claude Design System)
+ * Palette: Rust Copper/Bronze (#CE412B) + Ruby Crimson/Garnet (#CC342D)
+ * Typography: Serif Display (Cormorant Garamond / Copernicus 400) + Humanist Sans (Inter 400/500)
+ */
+
+:root {
+  /* Brand Voltage: Rust Copper (#CE412B) + Ruby Crimson (#CC342D) */
+  --colors-primary: #ce412b;
+  --colors-primary-active: #a93320;
+  --colors-primary-disabled: #e6dfd8;
+  --colors-on-primary: #ffffff;
+
+  --colors-ruby: #cc342d;
+  --colors-ruby-active: #9e1b1b;
+  --colors-ruby-deep: #700010;
+  --colors-ruby-subtle: #faebea;
+
+  /* Claude Warm Canvas & Surface System */
+  --colors-canvas: #faf9f5;
+  --colors-surface-soft: #f5f0e8;
+  --colors-surface-card: #efe9de;
+  --colors-surface-cream-strong: #e8e0d2;
+  --colors-surface-dark: #181715;
+  --colors-surface-dark-elevated: #252320;
+  --colors-surface-dark-soft: #1f1e1b;
+
+  /* Hairlines and Dividers */
+  --colors-hairline: #e6dfd8;
+  --colors-hairline-soft: #ebe6df;
+  --colors-hairline-dark: #2e2b27;
+
+  /* Editorial Text Tokens */
+  --colors-ink: #141413;
+  --colors-body-strong: #252523;
+  --colors-body: #3d3d3a;
+  --colors-muted: #6c6a64;
+  --colors-muted-soft: #8e8b82;
+  --colors-on-dark: #faf9f5;
+  --colors-on-dark-soft: #a09d96;
+
+  /* Accents */
+  --colors-accent-teal: #5db8a6;
+  --colors-accent-amber: #e8a55a;
+  --colors-success: #5db872;
+
+  /* Typography Stacks */
+  --font-display: "Cormorant Garamond", "Tiempos Headline", "Copernicus", Garamond, Georgia, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Hierarchical Radii per DESIGN.md */
+  --rounded-xs: 4px;
+  --rounded-sm: 6px;
+  --rounded-md: 8px;
+  --rounded-lg: 12px;
+  --rounded-xl: 16px;
+  --rounded-pill: 9999px;
+
+  /* Spacing Scale per DESIGN.md */
+  --spacing-xxs: 4px;
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  --spacing-section: 96px;
+}
+
+/* Dark Mode Alignment (Respects user OS preference while preserving Claude editorial depth) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --colors-canvas: #141312;
+    --colors-surface-soft: #1a1917;
+    --colors-surface-card: #1f1e1b;
+    --colors-surface-cream-strong: #272522;
+    --colors-surface-dark: #100f0e;
+    --colors-surface-dark-elevated: #1f1e1a;
+    --colors-surface-dark-soft: #161513;
+
+    --colors-hairline: #2b2824;
+    --colors-hairline-soft: #23211e;
+
+    --colors-ink: #faf8f5;
+    --colors-body-strong: #ede8e1;
+    --colors-body: #cfcac2;
+    --colors-muted: #9c978f;
+    --colors-muted-soft: #7a766f;
+
+    --colors-ruby-subtle: rgba(204, 52, 45, 0.15);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--colors-canvas);
+  color: var(--colors-body);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.railst-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ==========================================================================
+   Top Navigation (top-nav per DESIGN.md)
+   ========================================================================== */
+.top-nav {
+  height: 64px;
+  background-color: var(--colors-canvas);
+  border-bottom: 1px solid var(--colors-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--colors-ink);
+}
+
+/* Claude Signature Spike-Mark Emblem styled with Rust & Ruby accents */
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--colors-primary);
+}
+
+.brand-title {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--colors-ink);
+}
+
+.brand-badge {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--rounded-pill);
+  background: var(--colors-surface-card);
+  color: var(--colors-primary);
+  border: 1px solid var(--colors-hairline);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-link {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--colors-muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--colors-ink);
+}
+
+/* ==========================================================================
+   Buttons (button-primary & button-secondary per DESIGN.md)
+   ========================================================================== */
+.button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--colors-primary);
+  color: var(--colors-on-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--rounded-md);
+  border: none;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.button-primary:hover {
+  background-color: var(--colors-primary-active);
+}
+
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--colors-canvas);
+  color: var(--colors-ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--rounded-md);
+  border: 1px solid var(--colors-hairline);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.button-secondary:hover {
+  background-color: var(--colors-surface-soft);
+}
+
+.button-secondary-on-dark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--colors-surface-dark-elevated);
+  color: var(--colors-on-dark);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: var(--rounded-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-secondary-on-dark:hover {
+  background-color: #2e2b26;
+}
+
+/* ==========================================================================
+   Hero Section (hero-band per DESIGN.md)
+   ========================================================================== */
+.hero-band {
+  padding: var(--spacing-section) 0 64px 0;
+  text-align: center;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.badge-coral {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--colors-ruby-subtle);
+  color: var(--colors-primary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 14px;
+  border-radius: var(--rounded-pill);
+  border: 1px solid rgba(206, 65, 43, 0.25);
+  margin-bottom: 24px;
+}
+
+.hero-headline {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 400; /* Regular weight per DESIGN.md */
+  line-height: 1.05;
+  letter-spacing: -1.5px;
+  color: var(--colors-ink);
+  margin-bottom: 24px;
+}
+
+.hero-headline em {
+  font-style: italic;
+  color: var(--colors-primary);
+}
+
+.hero-headline strong {
+  font-weight: 400;
+  color: var(--colors-ruby);
+}
+
+.hero-body {
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--colors-muted);
+  max-width: 680px;
+  margin: 0 auto 36px auto;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Product Mockup / Code Window (code-window-card per DESIGN.md)
+   ========================================================================== */
+.code-window-card {
+  background-color: var(--colors-surface-dark);
+  color: var(--colors-on-dark);
+  border-radius: var(--rounded-lg);
+  border: 1px solid var(--colors-hairline-dark);
+  margin-bottom: var(--spacing-section);
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+.code-window-header {
+  padding: 14px 20px;
+  background-color: var(--colors-surface-dark-soft);
+  border-bottom: 1px solid var(--colors-hairline-dark);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.window-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.window-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #383530;
+}
+
+.window-title {
+  font-family: var(--font-code);
+  font-size: 13px;
+  color: var(--colors-on-dark-soft);
+}
+
+.code-window-body {
+  padding: var(--spacing-xl);
+}
+
+.benchmark-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 32px;
+}
+
+.benchmark-code-pane {
+  background-color: var(--colors-surface-dark-soft);
+  border-radius: var(--rounded-md);
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 1.65;
+  color: #cfcac2;
+  overflow-x: auto;
+}
+
+.code-keyword { color: #e57353; font-weight: 500; }
+.code-fn { color: #5db8a6; }
+.code-type { color: #e8a55a; }
+.code-comment { color: #7a766f; font-style: italic; }
+
+.benchmark-control-pane {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.control-title {
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--colors-on-dark);
+  margin-bottom: 8px;
+}
+
+.control-desc {
+  font-size: 13px;
+  color: var(--colors-on-dark-soft);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.control-select {
+  width: 100%;
+  height: 40px;
+  background-color: var(--colors-surface-dark-elevated);
+  border: 1px solid var(--colors-hairline-dark);
+  color: var(--colors-on-dark);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 0 12px;
+  border-radius: var(--rounded-md);
+  margin-bottom: 12px;
+  outline: none;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--colors-hairline-dark);
+}
+
+.result-card {
+  background-color: var(--colors-surface-dark-soft);
+  border: 1px solid var(--colors-hairline-dark);
+  border-radius: var(--rounded-sm);
+  padding: 10px 12px;
+}
+
+.result-label {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--colors-on-dark-soft);
+  margin-bottom: 4px;
+}
+
+.result-value {
+  font-family: var(--font-code);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--colors-primary);
+}
+
+.result-value.ruby {
+  color: var(--colors-ruby);
+}
+
+.result-value.green {
+  color: var(--colors-success);
+}
+
+/* ==========================================================================
+   Editorial Feature Grid (feature-card per DESIGN.md)
+   ========================================================================== */
+.feature-section-header {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 48px auto;
+}
+
+.section-label {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--colors-primary);
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  color: var(--colors-ink);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: var(--spacing-section);
+}
+
+.feature-card {
+  background-color: var(--colors-surface-card);
+  color: var(--colors-ink);
+  border-radius: var(--rounded-lg);
+  border: 1px solid var(--colors-hairline);
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.card-glyph {
+  color: var(--colors-primary);
+  margin-bottom: 24px;
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: -0.3px;
+  color: var(--colors-ink);
+  margin-bottom: 12px;
+}
+
+.card-body {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--colors-body);
+}
+
+.card-meta {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--colors-hairline);
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--colors-muted);
+}
+
+/* ==========================================================================
+   CLI Marquee / Pre-Footer Band (cta-band-dark per DESIGN.md)
+   ========================================================================== */
+.cli-band {
+  background-color: var(--colors-surface-dark);
+  color: var(--colors-on-dark);
+  border-radius: var(--rounded-lg);
+  padding: 48px;
+  margin-bottom: var(--spacing-section);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.cli-band-title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+}
+
+.cli-band-desc {
+  font-size: 15px;
+  color: var(--colors-on-dark-soft);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.terminal-box {
+  background-color: var(--colors-surface-dark-soft);
+  border-radius: var(--rounded-md);
+  border: 1px solid var(--colors-hairline-dark);
+  padding: 20px;
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.term-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.term-prompt {
+  color: var(--colors-primary);
+  user-select: none;
+  font-weight: 600;
+}
+
+.term-cmd {
+  color: var(--colors-on-dark);
+  font-weight: 500;
+}
+
+.term-comment {
+  color: var(--colors-muted-soft);
+}
+
+/* ==========================================================================
+   Footer (footer per DESIGN.md)
+   ========================================================================== */
+.page-footer {
+  background-color: var(--colors-surface-dark);
+  color: var(--colors-on-dark-soft);
+  padding: 64px 0 48px 0;
+  border-top: 1px solid var(--colors-hairline-dark);
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--colors-hairline-dark);
+  margin-bottom: 24px;
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--colors-on-dark);
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.footer-links {
+  display: flex;
+  gap: 24px;
+}
+
+.footer-link {
+  color: var(--colors-on-dark-soft);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.15s ease;
+}
+
+.footer-link:hover {
+  color: var(--colors-on-dark);
+}
+
+.footer-copy {
+  font-size: 12px;
+  color: var(--colors-muted-soft);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Responsive Adaptations per DESIGN.md Breakpoints
+   ========================================================================== */
+@media (max-width: 900px) {
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+  .benchmark-layout {
+    grid-template-columns: 1fr;
+  }
+  .cli-band {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-headline {
+    font-size: 40px;
+  }
+  .nav-links {
+    display: none;
+  }
+  .footer-inner {
+    flex-direction: column;
+    gap: 20px;
+    align-items: flex-start;
+  }
+}
